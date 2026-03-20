@@ -61,53 +61,57 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Summaries utilizing the same date boundaries
-    const [dailyAgg, monthlyAgg, yearlyAgg, allTimeAgg] = await Promise.all([
+    const [dailyAgg, monthlyAgg, yearlyAgg, allTimeAgg, subscriptionsAgg] = await Promise.all([
       ExpenseModel.aggregate([
-        { $match: { date: { $gte: today, $lt: tomorrow } } },
+        { $match: { date: { $gte: today, $lt: tomorrow }, subscriptionId: null } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
       ExpenseModel.aggregate([
-        { $match: { date: { $gte: monthStart, $lt: nextMonth } } },
+        { $match: { date: { $gte: monthStart, $lt: nextMonth }, subscriptionId: null } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
       ExpenseModel.aggregate([
-        { $match: { date: { $gte: yearStart, $lt: nextYear } } },
+        { $match: { date: { $gte: yearStart, $lt: nextYear }, subscriptionId: null } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
       ExpenseModel.aggregate([
+        { $match: { subscriptionId: null } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        { $match: { date: { $gte: monthStart, $lt: nextMonth }, subscriptionId: { $ne: null } } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
     ]);
 
-    // Category breakdown for charts (limited to current year)
-    // Category aggregations for different periods
+    // Category breakdown for charts (limited to current year) - EXCLUDING subscriptions
     const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+    weekStart.setDate(today.getDate() - today.getDay());
     weekStart.setHours(0, 0, 0, 0);
 
     const categoryWeek = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: weekStart } } },
+      { $match: { date: { $gte: weekStart }, subscriptionId: null } },
       { $group: { _id: "$category", total: { $sum: "$amount" }, count: { $sum: 1 } } },
       { $sort: { total: -1 } },
     ]);
 
     const categoryMonth = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: monthStart, $lt: nextMonth } } },
+      { $match: { date: { $gte: monthStart, $lt: nextMonth }, subscriptionId: null } },
       { $group: { _id: "$category", total: { $sum: "$amount" }, count: { $sum: 1 } } },
       { $sort: { total: -1 } },
     ]);
 
     const categoryYear = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: yearStart, $lt: nextYear } } },
+      { $match: { date: { $gte: yearStart, $lt: nextYear }, subscriptionId: null } },
       { $group: { _id: "$category", total: { $sum: "$amount" }, count: { $sum: 1 } } },
       { $sort: { total: -1 } },
     ]);
 
-    // Daily spending trend (last 30 days)
+    // Daily spending trend (last 30 days) - EXCLUDING subscriptions
     const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29); // Include today
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
     const dailyTrend = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: thirtyDaysAgo } } },
+      { $match: { date: { $gte: thirtyDaysAgo }, subscriptionId: null } },
       {
         $group: {
           _id: {
@@ -122,72 +126,15 @@ export async function GET(req: NextRequest) {
       { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
     ]);
 
-    // Monthly trend (last 12 months)
-    const twelveMonthsAgo = new Date(monthStart);
-    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11); // Include current month
-    const monthlyTrend = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: twelveMonthsAgo } } },
-      {
-        $group: {
-          _id: { year: { $year: "$date" }, month: { $month: "$date" } },
-          total: { $sum: "$amount" },
-          count: { $sum: 1 },
-        },
-      },
-      { $sort: { "_id.year": 1, "_id.month": 1 } },
-    ]);
-
-    // Weekly pattern (spending by day of week)
-    const weeklyAgg = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: thirtyDaysAgo } } },
-      {
-        $group: {
-          _id: { $dayOfWeek: "$date" },
-          total: { $sum: "$amount" },
-          count: { $sum: 1 },
-        },
-      },
-      { $sort: { "_id": 1 } },
-    ]);
-
-    // Top single expense this month
-    const maxExpense = await ExpenseModel.findOne({ date: { $gte: monthStart, $lt: nextMonth } })
+    // Top single expense this month - EXCLUDING subscriptions
+    const maxExpense = await ExpenseModel.findOne({ date: { $gte: monthStart, $lt: nextMonth }, subscriptionId: null })
       .sort({ amount: -1 })
       .limit(1)
       .lean();
 
-    // Weekly trend (last 7 days - date wise)
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 6);
-    const weeklyTrend = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: sevenDaysAgo } } },
-      {
-        $group: {
-          _id: { year: { $year: "$date" }, month: { $month: "$date" }, day: { $dayOfMonth: "$date" } },
-          total: { $sum: "$amount" },
-        },
-      },
-      { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
-    ]);
-
-    // Yearly trend (last 52 weeks - week wise)
-    const fiftyTwoWeeksAgo = new Date(today);
-    fiftyTwoWeeksAgo.setDate(today.getDate() - 364);
-    const yearlyWeeklyTrend = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: fiftyTwoWeeksAgo } } },
-      {
-        $group: {
-          _id: { year: { $year: "$date" }, week: { $week: "$date" } },
-          total: { $sum: "$amount" },
-        },
-      },
-      { $sort: { "_id.year": 1, "_id.week": 1 } },
-    ]);
-
-    // Smart Insights Logic
-    // 1. Avg Daily Spending (last 30 days) to detect spikes
+    // 1. Avg Daily Spending (last 30 days) - EXCLUDING subscriptions
     const avgDailyAgg = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: thirtyDaysAgo, $lt: tomorrow } } },
+      { $match: { date: { $gte: thirtyDaysAgo, $lt: tomorrow }, subscriptionId: null } },
       {
         $group: {
           _id: { day: { $dayOfMonth: "$date" }, month: { $month: "$date" }, year: { $year: "$date" } },
@@ -198,9 +145,11 @@ export async function GET(req: NextRequest) {
     ]);
     const avgDaily = avgDailyAgg[0]?.avg || 0;
 
-    // 2. Late night spending (10PM - 5AM) in last 7 days
+    // 2. Late night spending - EXCLUDING subscriptions
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6);
     const lateNightAgg = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: sevenDaysAgo } } },
+      { $match: { date: { $gte: sevenDaysAgo }, subscriptionId: null } },
       {
         $addFields: {
           hour: { $hour: { date: "$date", timezone: "Asia/Kolkata" } }
@@ -210,18 +159,72 @@ export async function GET(req: NextRequest) {
       { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
     ]);
 
-    // MoM Comparison: Current Month vs Last Month
+    // Monthly trend (last 12 months) - EXCLUDING subscriptions
+    const twelveMonthsAgo = new Date(monthStart);
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
+    const monthlyTrend = await ExpenseModel.aggregate([
+      { $match: { date: { $gte: twelveMonthsAgo }, subscriptionId: null } },
+      {
+        $group: {
+          _id: { year: { $year: "$date" }, month: { $month: "$date" } },
+          total: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+    ]);
+
+    // Weekly pattern (day of week) - EXCLUDING subscriptions
+    const weeklyAgg = await ExpenseModel.aggregate([
+      { $match: { date: { $gte: thirtyDaysAgo }, subscriptionId: null } },
+      {
+        $group: {
+          _id: { $dayOfWeek: "$date" },
+          total: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id": 1 } },
+    ]);
+
+    // Weekly trend (last 7 days - date wise) - EXCLUDING subscriptions
+    const weeklyTrend = await ExpenseModel.aggregate([
+      { $match: { date: { $gte: sevenDaysAgo }, subscriptionId: null } },
+      {
+        $group: {
+          _id: { year: { $year: "$date" }, month: { $month: "$date" }, day: { $dayOfMonth: "$date" } },
+          total: { $sum: "$amount" },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
+    ]);
+
+    // Yearly trend (last 52 weeks - week wise) - EXCLUDING subscriptions
+    const fiftyTwoWeeksAgo = new Date(today);
+    fiftyTwoWeeksAgo.setDate(today.getDate() - 364);
+    const yearlyWeeklyTrend = await ExpenseModel.aggregate([
+      { $match: { date: { $gte: fiftyTwoWeeksAgo }, subscriptionId: null } },
+      {
+        $group: {
+          _id: { year: { $year: "$date" }, week: { $week: "$date" } },
+          total: { $sum: "$amount" },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.week": 1 } },
+    ]);
+
+    // MoM Comparison: Current Month vs Last Month - EXCLUDING subscriptions
     const lastMonthStart = new Date(monthStart);
     lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
     const lastMonthEnd = new Date(monthStart);
 
     const lastMonthAgg = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: lastMonthStart, $lt: lastMonthEnd } } },
+      { $match: { date: { $gte: lastMonthStart, $lt: lastMonthEnd }, subscriptionId: null } },
       { $group: { _id: null, total: { $sum: "$amount" } } }
     ]);
 
     const lastMonthCategories = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: lastMonthStart, $lt: lastMonthEnd } } },
+      { $match: { date: { $gte: lastMonthStart, $lt: lastMonthEnd }, subscriptionId: null } },
       { $group: { _id: "$category", total: { $sum: "$amount" } } },
       { $sort: { total: -1 } }
     ]);
@@ -236,6 +239,7 @@ export async function GET(req: NextRequest) {
         monthly: monthlyAgg[0]?.total || 0,
         yearly: yearlyAgg[0]?.total || 0,
         allTime: allTimeAgg[0]?.total || 0,
+        subscriptionTotal: subscriptionsAgg[0]?.total || 0,
         maxExpense: maxExpense || null,
         avgDaily,
         lateNight: lateNightAgg[0] || { total: 0, count: 0 },

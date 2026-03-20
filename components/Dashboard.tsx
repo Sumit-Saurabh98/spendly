@@ -165,7 +165,8 @@ export default function Dashboard() {
     daily: 0, monthly: 0, yearly: 0, allTime: 0, maxExpense: null as any, avgDaily: 0, 
     lateNight: { total: 0, count: 0 },
     comparison: { thisMonth: { total: 0, categories: [] }, lastMonth: { total: 0, categories: [] } },
-    forecast: { projected: 0, totalDays: 30, currentDay: 1, daysRemaining: 29 }
+    forecast: { projected: 0, totalDays: 30, currentDay: 1, daysRemaining: 29 },
+    subscriptionTotal: 0
   });
   const [charts, setCharts] = useState<ChartData>({
     categories: { week: [], month: [], year: [] },
@@ -794,6 +795,32 @@ export default function Dashboard() {
                     <span>SPENT: {fmt(summary.monthly)}</span>
                     <span>BUDGET: {fmt(dailyBudget * summary.forecast.totalDays)}</span>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Subscriptions Overview Card */}
+            {summary.subscriptionTotal > 0 && (
+              <div className="card" style={{ padding: 20, marginBottom: 20, borderLeft: "4px solid var(--blue)", background: "rgba(59, 130, 246, 0.05)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <div style={{ padding: 10, borderRadius: 10, background: "rgba(59, 130, 246, 0.1)", color: "var(--blue)" }}>
+                      <RefreshCw size={20} />
+                    </div>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Recurring Payments</h4>
+                      <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--text2)" }}>
+                        You have {fmt(summary.subscriptionTotal)} in monthly subscriptions.
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setTab("subscriptions")}
+                    className="btn btn-secondary" 
+                    style={{ padding: "8px 16px", fontSize: 12 }}
+                  >
+                    Manage
+                  </button>
                 </div>
               </div>
             )}

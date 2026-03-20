@@ -74,6 +74,12 @@ export async function POST(req: NextRequest) {
       isAutoDetected: !!isAutoDetected
     });
 
+    // Link existing expenses to this subscription
+    await ExpenseModel.updateMany(
+      { description: { $regex: new RegExp(`^${name}$`, "i") } },
+      { $set: { subscriptionId: subscription._id } }
+    );
+
     return NextResponse.json(subscription, { status: 201 });
   } catch (error) {
     console.error(error);

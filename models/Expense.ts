@@ -10,6 +10,7 @@ export interface IExpense extends Document {
     longitude: number;
     name?: string;
   };
+  subscriptionId?: mongoose.Types.ObjectId;
   createdAt: Date;
 }
 
@@ -24,6 +25,7 @@ const ExpenseSchema = new Schema<IExpense>(
       longitude: { type: Number },
       name: { type: String },
     },
+    subscriptionId: { type: Schema.Types.ObjectId, ref: "Subscription" },
   },
   { timestamps: true }
 );
