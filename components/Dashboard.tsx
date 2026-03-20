@@ -5,7 +5,7 @@ import {
   LayoutDashboard, PlusCircle, BarChart3, List, AlertTriangle,
   TrendingUp, TrendingDown, Wallet, Calendar, CalendarDays,
   CalendarRange, Trash2, RefreshCw, Settings, IndianRupee, MessageSquare, Sparkles,
-  Lock, ShieldCheck, Key
+  Lock, ShieldCheck, Key, Map, Locate
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -22,7 +22,49 @@ const fmt = (n: number) =>
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 
-type Tab = "overview" | "add" | "charts" | "logs" | "chat";
+const MapView = ({ expenses }: { expenses: Expense[] }) => {
+  useEffect(() => {
+    if (typeof window === "undefined" || !(window as any).L) return;
+
+    const L = (window as any).L;
+    const mapData = expenses.filter(ex => ex.location?.latitude && ex.location?.longitude);
+    
+    // Default center
+    const defaultCenter: [number, number] = [20.5937, 78.9629];
+    const map = L.map("spending-map").setView(defaultCenter, 5);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    const markers: any[] = [];
+    mapData.forEach((ex) => {
+      const marker = L.marker([ex.location!.latitude, ex.location!.longitude])
+        .addTo(map)
+        .bindPopup(`
+          <div style="font-family: inherit; padding: 4px; min-width: 120px;">
+            <b style="color: #7c5cfc; font-size: 13px; text-transform: uppercase;">${ex.category}</b>
+            <div style="font-weight: 800; font-size: 18px; margin: 4px 0;">₹${ex.amount.toLocaleString('en-IN')}</div>
+            <div style="color: #64748b; font-size: 12px; border-top: 1px solid #eee; padding-top: 4px; margin-top: 4px;">${ex.description}</div>
+          </div>
+        `);
+      markers.push(marker);
+    });
+
+    if (markers.length > 0) {
+      const group = L.featureGroup(markers);
+      map.fitBounds(group.getBounds().pad(0.2));
+    }
+
+    return () => {
+      map.remove();
+    };
+  }, [expenses]);
+
+  return <div id="spending-map" style={{ height: 500, borderRadius: 16, border: "1px solid var(--border)", zIndex: 1, background: "var(--bg3)" }} />;
+};
+
+type Tab = "overview" | "add" | "charts" | "logs" | "map" | "chat";
 
 interface Expense {
   _id: string;
@@ -30,6 +72,7 @@ interface Expense {
   category: string;
   description: string;
   date: string;
+  location?: { latitude: number; longitude: number; name?: string };
   createdAt: string;
 }
 
@@ -66,7 +109,9 @@ export default function Dashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
   const [alerts, setAlerts] = useState<string[]>([]);
+  const [showReminder, setShowReminder] = useState(false);
   const [logPeriod, setLogPeriod] = useState<"all" | "day" | "month" | "year">("month");
   const [trendPeriod, setTrendPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
   const [categoryPeriod, setCategoryPeriod] = useState<"week" | "month" | "year">("year");
@@ -80,6 +125,7 @@ export default function Dashboard() {
     category: CATEGORIES[0],
     description: "",
     date: getISTDate(),
+    location: null as { latitude: number; longitude: number; name?: string } | null,
   });
 
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -93,14 +139,29 @@ export default function Dashboard() {
         setIsAuthenticated(false);
       }
     };
+    const checkReminder = () => {
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+      const hours = istTime.getHours();
+      // Show reminder if after 9pm and no entries today
+      if (hours >= 21 && summary.daily === 0 && isAuthenticated) {
+        setShowReminder(true);
+      } else {
+        setShowReminder(false);
+      }
+    };
     checkAuth();
-    const interval = setInterval(checkAuth, 5000);
+    checkReminder();
+    const interval = setInterval(() => {
+      checkAuth();
+      checkReminder();
+    }, 10000);
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => {
       clearInterval(interval);
       clearInterval(timer);
     };
-  }, []);
+  }, [summary.daily, isAuthenticated]);
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,6 +190,32 @@ export default function Dashboard() {
     }
   };
 
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation not supported");
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude, longitude } = pos.coords;
+      let name = "";
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`, {
+          headers: { "User-Agent": "SpendlyTracker/1.0" }
+        });
+        const data = await res.json();
+        name = data.address?.suburb || data.address?.neighbourhood || data.address?.road || data.address?.city || data.display_name.split(',')[0];
+      } catch (err) {
+        console.error("Geocoding failed", err);
+      }
+      setForm(prev => ({ ...prev, location: { latitude, longitude, name } }));
+      setIsLocating(false);
+    }, (err) => {
+      alert("Unable to get location");
+      setIsLocating(false);
+    });
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -147,10 +234,17 @@ export default function Dashboard() {
       // Alerts
       const daily = budgetData.dailyBudget || 100;
       const newAlerts: string[] = [];
-      if (expensesData.summary?.daily > daily) newAlerts.push("⚠️ You've exceeded your daily budget!");
+      
+      // Daily alerts (Mutually exclusive)
+      if (expensesData.summary?.daily > daily) {
+        newAlerts.push("⚠️ You've exceeded your daily budget!");
+      } else if (expensesData.summary?.daily > daily * 0.8) {
+        newAlerts.push("🟡 You've used 80%+ of today's budget.");
+      }
+
+      // Monthly/Yearly alerts
       if (expensesData.summary?.monthly > daily * 31) newAlerts.push("⚠️ You've exceeded your monthly budget!");
       if (expensesData.summary?.yearly > daily * 31 * 12) newAlerts.push("⚠️ You've exceeded your yearly budget!");
-      else if (expensesData.summary?.daily > daily * 0.8) newAlerts.push("🟡 You've used 80%+ of today's budget.");
       setAlerts(newAlerts);
     } catch (e) {
       console.error(e);
@@ -164,6 +258,22 @@ export default function Dashboard() {
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.amount || !form.description) return;
+
+    // Budget Breach Alert (20% of monthly budget)
+    const monthlyBudget = dailyBudget * 31;
+    const amountNum = parseFloat(form.amount);
+    if (amountNum > monthlyBudget * 0.2) {
+      const confirmBreach = window.confirm(`⚠️ Flash Alert: This expense (₹${amountNum}) is more than 20% of your total monthly budget (₹${monthlyBudget}). Proceed?`);
+      if (!confirmBreach) return;
+
+      // Send Email Notification
+      fetch("/api/notify/breach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: amountNum, monthBudget: monthlyBudget, description: form.description }),
+      }).catch(err => console.error("Email notify failed", err));
+    }
+
     setSubmitting(true);
     try {
       const res = await fetch("/api/expenses", {
@@ -172,7 +282,7 @@ export default function Dashboard() {
         body: JSON.stringify({ ...form, amount: parseFloat(form.amount) }),
       });
       if (res.ok) {
-        setForm({ amount: "", category: CATEGORIES[0], description: "", date: getISTDate() });
+        setForm({ amount: "", category: CATEGORIES[0], description: "", date: getISTDate(), location: null });
         fetchData();
         setTab("overview");
       }
@@ -333,6 +443,17 @@ export default function Dashboard() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", padding: "0 0 60px" }}>
+      {/* Daily Reminder Banner */}
+      {showReminder && (
+        <div style={{ background: "linear-gradient(90deg, #7c5cfc, #b983ff)", color: "white", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, position: "relative" }}>
+          <Sparkles size={18} />
+          <span style={{ fontSize: 13, fontWeight: 600 }}>It's 9:00 PM! Don't forget to log your expenses for today.</span>
+          <button onClick={() => setShowReminder(false)} style={{ position: "absolute", right: 20, color: "white", opacity: 0.7, padding: 4 }}>
+            <Trash2 size={16} /> 
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ background: "var(--bg2)", borderBottom: "1px solid var(--border)", padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -603,6 +724,32 @@ export default function Dashboard() {
                   />
                 </div>
                 <div style={{ marginBottom: 24 }}>
+                  <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Location (Optional)</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button 
+                      type="button"
+                      disabled={isLocating}
+                      onClick={handleGetLocation}
+                      className="btn-secondary"
+                      style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px" }}
+                    >
+                      {isLocating ? <RefreshCw className="animate-spin" size={18} /> : <Locate size={18} />}
+                      {isLocating ? "Getting Location..." : form.location ? "Location Updated" : "Tag Current Location"}
+                    </button>
+                  </div>
+                  {form.location && (
+                    <div style={{ margin: "8px 0 0", fontSize: 11, color: "var(--green)", display: "flex", alignItems: "center", gap: 6 }}>
+                      <Locate size={12} />
+                      {form.location.name ? (
+                        <span style={{ fontWeight: 600 }}>Area: {form.location.name}</span>
+                      ) : (
+                        <span>Coordinates: {form.location.latitude.toFixed(4)}, {form.location.longitude.toFixed(4)}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
                   <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Date</label>
                   <input
                     className="input-field"
@@ -626,6 +773,43 @@ export default function Dashboard() {
                   {submitting ? "Adding..." : "Add Expense"}
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* MAP TAB */}
+        {tab === "map" && (
+          <div className="animate-slide-up">
+            <div className="card" style={{ padding: 24, minHeight: 600 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Spending Map</h2>
+                <div style={{ fontSize: 13, background: "rgba(124, 92, 252, 0.1)", color: "var(--accent)", padding: "4px 12px", borderRadius: 20, fontWeight: 600 }}>
+                  {expenses.filter(e => e.location).length} Geo-tagged
+                </div>
+              </div>
+              
+              <div id="spending-map-container" style={{ position: "relative" }}>
+                {!expenses.some(e => e.location) ? (
+                  <div style={{ height: 500, borderRadius: 16, background: "var(--bg3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center", padding: 40 }}>
+                    <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border)" }}>
+                      <Map size={32} style={{ opacity: 0.5 }} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>No map markers yet</h3>
+                      <p style={{ margin: 0, fontSize: 14, color: "var(--text2)", maxWidth: 300 }}>Tag your next expense with a location to see it appear on your spending hotspots map!</p>
+                    </div>
+                  </div>
+                ) : (
+                  <MapView expenses={expenses} />
+                )}
+              </div>
+
+              <div style={{ marginTop: 24, padding: "16px", background: "var(--bg3)", borderRadius: 12, border: "1px solid var(--border)" }}>
+                <h4 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 600 }}>Pro Tip: Location Insights</h4>
+                <p style={{ margin: 0, fontSize: 13, color: "var(--text2)", lineHeight: 1.5 }}>
+                  Use the map to identify areas where your spending is highest. This can help you find expensive habits tied to specific neighborhoods or stores.
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -836,8 +1020,16 @@ export default function Dashboard() {
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exp.description}</p>
-                                <div style={{ display: "flex", gap: 8, marginTop: 3 }}>
-                                  <span style={{ fontSize: 11, color: "var(--text2)", background: "var(--bg3)", borderRadius: 5, padding: "1px 7px" }}>{exp.category}</span>
+                                <div style={{ display: "flex", gap: 12, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 10, color: "var(--text2)", background: "var(--bg3)", borderRadius: 5, padding: "1px 7px", fontWeight: 600, textTransform: "uppercase" }}>{exp.category}</span>
+                                  {exp.location && (
+                                    <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--accent)", fontSize: 10 }}>
+                                      <Locate size={10} />
+                                      <span title={exp.location.name} style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                        {exp.location.name || `${exp.location.latitude.toFixed(4)}, ${exp.location.longitude.toFixed(4)}`}
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                               <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--text)", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>

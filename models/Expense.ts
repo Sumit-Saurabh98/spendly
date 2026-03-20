@@ -5,6 +5,11 @@ export interface IExpense extends Document {
   category: string;
   description: string;
   date: Date;
+  location?: {
+    latitude: number;
+    longitude: number;
+    name?: string;
+  };
   createdAt: Date;
 }
 
@@ -14,9 +19,17 @@ const ExpenseSchema = new Schema<IExpense>(
     category: { type: String, required: true },
     description: { type: String, required: true },
     date: { type: Date, required: true, default: Date.now },
+    location: {
+      latitude: { type: Number },
+      longitude: { type: Number },
+      name: { type: String },
+    },
   },
   { timestamps: true }
 );
 
-export const ExpenseModel =
-  mongoose.models.Expense || mongoose.model<IExpense>("Expense", ExpenseSchema);
+if (mongoose.models.Expense) {
+  delete (mongoose as any).models.Expense;
+}
+
+export const ExpenseModel = mongoose.model<IExpense>("Expense", ExpenseSchema);

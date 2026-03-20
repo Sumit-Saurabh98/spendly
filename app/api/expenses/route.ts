@@ -247,7 +247,7 @@ export async function POST(req: NextRequest) {
   try {
     await connectDB();
     const body = await req.json();
-    const { amount, category, description, date } = body;
+    const { amount, category, description, date, location } = body;
 
     if (!amount || !category || !description) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -258,6 +258,7 @@ export async function POST(req: NextRequest) {
       category,
       description,
       date: date ? new Date(`${date}T00:00:00+05:30`) : new Date(),
+      location,
     });
 
     return NextResponse.json(expense, { status: 201 });
