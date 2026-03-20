@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { ExpenseModel } from "@/models/Expense";
 import { BudgetModel } from "@/models/Budget";
+import { SubscriptionModel } from "@/models/Subscription";
+import { GoalModel } from "@/models/Goal";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -55,11 +57,17 @@ export async function POST(req: Request) {
           Current Local Time (IST): ${nowIST}.
           Your goal is to help users manage their finances.
           
+          CAPABILITIES:
+          1. You have access to the user's Expenses, Savings Goals, and Recurring Subscriptions.
+          2. Expenses often include Location data (Latitude, Longitude, and Area Name). Use this to answer geographic questions like "Where do I spend the most?".
+          3. You can see the progress of various Savings Goals (e.g., "New Laptop").
+          
           CRITICAL RULES:
           1. ALWAYS use Indian Rupees (₹) for ALL currency values. NEVER use dollars ($) or other currencies.
           2. Use tools to query the database for accurate, real-time information.
           3. If the user asks about "today", "this month", etc., use the tools to find data relative to ${nowIST}.
-          4. Be concise, professional, and insightful.`,
+          4. For location-based queries, analyze the 'location' field in expense records.
+          5. Be concise, professional, and insightful.`,
         },
         ...messages,
       ],
@@ -76,14 +84,30 @@ export async function POST(req: Request) {
           type: "function",
           function: {
             name: "search_expenses",
-            description: "Search for specific expenses by category or description",
+            description: "Search for specific expenses by category, description, or location (area name)",
             parameters: {
               type: "object",
               properties: {
-                query: { type: "string", description: "Search keyword for description or category" },
+                query: { type: "string", description: "Search keyword for description, category, or area name" },
                 limit: { type: "number", description: "Number of results to return (default 10)" },
               },
             },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "get_subscriptions",
+            description: "Get all active and detected recurring subscriptions/payments",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "get_goals",
+            description: "Get all savings goals and their current progress",
+            parameters: { type: "object", properties: {} },
           },
         },
       ],
@@ -117,18 +141,22 @@ export async function POST(req: Request) {
           const monthStart = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
           const yearStart = new Date(`${year}-01-01T00:00:00+05:30`);
 
-          const [budget, daily, monthly, yearly] = await Promise.all([
+          const [budget, daily, monthly, yearly, subs] = await Promise.all([
             BudgetModel.findOne(),
-            ExpenseModel.aggregate([{ $match: { date: { $gte: today } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { date: { $gte: monthStart } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { date: { $gte: yearStart } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { date: { $gte: today }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { date: { $gte: monthStart }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { date: { $gte: yearStart }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            SubscriptionModel.find({ isActive: true })
           ]);
+
+          const subTotal = subs.reduce((sum, s) => sum + s.amount, 0);
 
           result = JSON.stringify({
             budget: budget?.dailyBudget || 100,
             daily: daily[0]?.total || 0,
             monthly: monthly[0]?.total || 0,
             yearly: yearly[0]?.total || 0,
+            subscriptionTotal: subTotal,
             currency: "INR (₹)"
           });
         } else if (tc.function.name === "search_expenses") {
@@ -136,12 +164,19 @@ export async function POST(req: Request) {
           const query = args.query ? { 
             $or: [
               { category: { $regex: args.query, $options: "i" } },
-              { description: { $regex: args.query, $options: "i" } }
+              { description: { $regex: args.query, $options: "i" } },
+              { "location.name": { $regex: args.query, $options: "i" } }
             ]
           } : {};
           
           const expenses = await ExpenseModel.find(query).sort({ date: -1 }).limit(args.limit || 10).lean();
           result = JSON.stringify(expenses);
+        } else if (tc.function.name === "get_subscriptions") {
+          const subs = await SubscriptionModel.find().lean();
+          result = JSON.stringify(subs);
+        } else if (tc.function.name === "get_goals") {
+          const goals = await GoalModel.find().lean();
+          result = JSON.stringify(goals);
         }
 
         updatedMessages.push({

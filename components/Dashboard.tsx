@@ -69,7 +69,7 @@ const Modal = ({ isOpen, onClose, title, children, type = "default" }: { isOpen:
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div 
-        style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }} 
+        style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", cursor: "pointer" }} 
         onClick={onClose}
       />
       <div className="card animate-scale-in" style={{ 
@@ -979,7 +979,7 @@ export default function Dashboard() {
         {/* CHARTS TAB */}
         {tab === "charts" && (
           <div className="animate-slide-up">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))", gap: 16, marginBottom: 16 }}>
               {/* Category Pie */}
               <div className="card" style={{ padding: 20 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -1154,7 +1154,7 @@ export default function Dashboard() {
         {/* SUBSCRIPTIONS TAB */}
         {tab === "subscriptions" && (
           <div className="animate-slide-up">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))", gap: 24 }}>
               {/* Detected Subscriptions */}
               <div className="card" style={{ padding: 24 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
@@ -1232,7 +1232,7 @@ export default function Dashboard() {
         {/* GOALS TAB */}
         {tab === "goals" && (
           <div className="animate-slide-up">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 24 }}>
               {/* Goals List */}
               <div className="card" style={{ padding: 24 }}>
                 <h2 style={{ margin: "0 0 24px", fontSize: 20, fontWeight: 700 }}>Savings Goals</h2>
