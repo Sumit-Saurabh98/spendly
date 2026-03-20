@@ -164,7 +164,8 @@ export default function Dashboard() {
   const [summary, setSummary] = useState({ 
     daily: 0, monthly: 0, yearly: 0, allTime: 0, maxExpense: null as any, avgDaily: 0, 
     lateNight: { total: 0, count: 0 },
-    comparison: { thisMonth: { total: 0, categories: [] }, lastMonth: { total: 0, categories: [] } } 
+    comparison: { thisMonth: { total: 0, categories: [] }, lastMonth: { total: 0, categories: [] } },
+    forecast: { projected: 0, totalDays: 30, currentDay: 1, daysRemaining: 29 }
   });
   const [charts, setCharts] = useState<ChartData>({
     categories: { week: [], month: [], year: [] },
@@ -731,6 +732,71 @@ export default function Dashboard() {
               </div>
             )}
 
+
+            {/* AI Forecast Card */}
+            {summary.forecast && (
+              <div className="card" style={{ padding: 24, marginBottom: 20, background: "linear-gradient(135deg, rgba(124, 92, 252, 0.05) 0%, rgba(34, 211, 160, 0.05) 100%)", border: "1px solid rgba(124, 92, 252, 0.2)", position: "relative", overflow: "hidden" }}>
+                <div style={{ position: "absolute", top: -20, right: -20, opacity: 0.1 }}>
+                  <Sparkles size={120} color="var(--accent)" />
+                </div>
+                
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", position: "relative", zIndex: 1 }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                      <div style={{ padding: 8, borderRadius: 10, background: "var(--accent)", color: "white", display: "flex" }}>
+                        <TrendingUp size={16} />
+                      </div>
+                      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>AI Spending Forecast</h3>
+                    </div>
+                    
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+                      <span style={{ fontSize: 28, fontWeight: 800, color: "var(--text)" }}>{fmt(summary.forecast.projected)}</span>
+                      <span style={{ fontSize: 13, color: "var(--text2)", fontWeight: 500 }}>Projected Month End</span>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 16 }}>
+                      {summary.forecast.projected > dailyBudget * summary.forecast.totalDays ? (
+                        <>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--red)" }} />
+                          <span style={{ color: "var(--red)", fontSize: 13, fontWeight: 600 }}>Likely to overshoot by {fmt(summary.forecast.projected - (dailyBudget * summary.forecast.totalDays))}</span>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--green)" }} />
+                          <span style={{ color: "var(--green)", fontSize: 13, fontWeight: 600 }}>You're on track to stay within budget!</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="card" style={{ padding: "12px 16px", background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)", maxWidth: 220 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Smart AI Tip</div>
+                    <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--text2)" }}>
+                      {summary.forecast.projected > dailyBudget * summary.forecast.totalDays 
+                        ? `Tone it down! To stay under budget, try to keep your daily spend around ${fmt(Math.max(0, (dailyBudget * summary.forecast.totalDays - summary.monthly) / summary.forecast.daysRemaining))} for the rest of the month.`
+                        : `Great job! You have ${fmt((dailyBudget * summary.forecast.totalDays - summary.monthly) / summary.forecast.daysRemaining)} to spend daily for the next ${summary.forecast.daysRemaining} days.`
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 20, position: "relative", zIndex: 1 }}>
+                  <div style={{ height: 6, width: "100%", background: "rgba(0,0,0,0.1)", borderRadius: 3 }}>
+                    <div style={{ 
+                      height: "100%", 
+                      width: `${Math.min((summary.monthly / (dailyBudget * summary.forecast.totalDays)) * 100, 100)}%`, 
+                      background: "var(--accent)", 
+                      borderRadius: 3,
+                      boxShadow: "0 0 10px rgba(124, 92, 252, 0.4)"
+                    }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 11, color: "var(--text2)", fontWeight: 600 }}>
+                    <span>SPENT: {fmt(summary.monthly)}</span>
+                    <span>BUDGET: {fmt(dailyBudget * summary.forecast.totalDays)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Quick stats */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>

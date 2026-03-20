@@ -242,7 +242,22 @@ export async function GET(req: NextRequest) {
         comparison: {
           thisMonth: { total: monthlyAgg[0]?.total || 0, categories: categoryMonth },
           lastMonth: { total: lastMonthAgg[0]?.total || 0, categories: lastMonthCategories }
-        }
+        },
+        forecast: (() => {
+          const totalDays = new Date(year, month + 1, 0).getDate();
+          const spent = monthlyAgg[0]?.total || 0;
+          const currentDay = day; // 1-indexed
+          const projected = (spent / currentDay) * totalDays;
+          const daysRemaining = Math.max(totalDays - currentDay, 1);
+          
+          return {
+            projected,
+            totalDays,
+            currentDay,
+            daysRemaining,
+            isOvershooting: false, // Will be compared with budget on frontend or if we fetch budget here
+          };
+        })()
       },
       charts: {
         categories: {
