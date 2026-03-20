@@ -5,7 +5,7 @@ import {
   LayoutDashboard, PlusCircle, BarChart3, List, AlertTriangle,
   TrendingUp, TrendingDown, Wallet, Calendar, CalendarDays,
   CalendarRange, Trash2, RefreshCw, Settings, IndianRupee, MessageSquare, Sparkles,
-  Lock, ShieldCheck, Key, Map, Locate
+  Lock, ShieldCheck, Key, Map, Locate, X, CheckCircle2
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -64,7 +64,45 @@ const MapView = ({ expenses }: { expenses: Expense[] }) => {
   return <div id="spending-map" style={{ height: 500, borderRadius: 16, border: "1px solid var(--border)", zIndex: 1, background: "var(--bg3)" }} />;
 };
 
-type Tab = "overview" | "add" | "charts" | "logs" | "map" | "chat";
+const Modal = ({ isOpen, onClose, title, children, type = "default" }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; type?: "default" | "danger" | "success" }) => {
+  if (!isOpen) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div 
+        style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }} 
+        onClick={onClose}
+      />
+      <div className="card animate-scale-in" style={{ 
+        position: "relative", 
+        width: "100%", 
+        maxWidth: 400, 
+        padding: 0, 
+        overflow: "hidden", 
+        border: type === "danger" ? "1px solid rgba(255, 83, 112, 0.3)" : "1px solid var(--border)",
+        boxShadow: "0 20px 40px rgba(0,0,0,0.4)"
+      }}>
+        <div style={{ 
+          padding: "16px 20px", 
+          borderBottom: "1px solid var(--border)", 
+          display: "flex", 
+          justifyContent: "space-between", 
+          alignItems: "center",
+          background: type === "danger" ? "rgba(255, 83, 112, 0.05)" : "rgba(124, 92, 252, 0.05)"
+        }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: type === "danger" ? "var(--red)" : "var(--text)" }}>{title}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text2)", cursor: "pointer", display: "flex", padding: 4 }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ padding: 24 }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+type Tab = "overview" | "add" | "charts" | "logs" | "map" | "subscriptions" | "goals" | "chat";
 
 interface Expense {
   _id: string;
@@ -74,6 +112,27 @@ interface Expense {
   date: string;
   location?: { latitude: number; longitude: number; name?: string };
   createdAt: string;
+}
+
+interface Subscription {
+  _id: string;
+  name: string;
+  amount: number;
+  category: string;
+  frequency: string;
+  nextBillingDate?: string;
+  isActive: boolean;
+  isAutoDetected: boolean;
+}
+
+interface Goal {
+  _id: string;
+  name: string;
+  targetAmount: number;
+  currentAmount: number;
+  deadline?: string;
+  status: "active" | "completed" | "paused";
+  color: string;
 }
 
 interface ChartData {
@@ -102,14 +161,25 @@ export default function Dashboard() {
   const [newBudget, setNewBudget] = useState("");
   const [showBudgetEdit, setShowBudgetEdit] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [summary, setSummary] = useState({ daily: 0, monthly: 0, yearly: 0, allTime: 0, maxExpense: null as any, avgDaily: 0, lateNight: { total: 0, count: 0 } });
+  const [summary, setSummary] = useState({ 
+    daily: 0, monthly: 0, yearly: 0, allTime: 0, maxExpense: null as any, avgDaily: 0, 
+    lateNight: { total: 0, count: 0 },
+    comparison: { thisMonth: { total: 0, categories: [] }, lastMonth: { total: 0, categories: [] } } 
+  });
   const [charts, setCharts] = useState<ChartData>({
     categories: { week: [], month: [], year: [] },
     dailyTrend: [], monthlyTrend: [], weeklyTrend: [], yearlyWeeklyTrend: [], weekdayPattern: [] 
   });
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [detectedSubscriptions, setDetectedSubscriptions] = useState<any[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const [modal, setModal] = useState<{
+    type: "add-funds" | "confirm-delete" | "flash-alert" | null;
+    data: any;
+  }>({ type: null, data: null });
   const [alerts, setAlerts] = useState<string[]>([]);
   const [showReminder, setShowReminder] = useState(false);
   const [logPeriod, setLogPeriod] = useState<"all" | "day" | "month" | "year">("month");
@@ -192,7 +262,7 @@ export default function Dashboard() {
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
-      alert("Geolocation not supported");
+      setModal({ type: "flash-alert", data: { message: "Geolocation is not supported by your browser.", onConfirm: () => setModal({ type: null, data: null }) } });
       return;
     }
     setIsLocating(true);
@@ -211,7 +281,7 @@ export default function Dashboard() {
       setForm(prev => ({ ...prev, location: { latitude, longitude, name } }));
       setIsLocating(false);
     }, (err) => {
-      alert("Unable to get location");
+      setModal({ type: "flash-alert", data: { message: "Unable to retrieve your location. Please check your permissions.", onConfirm: () => setModal({ type: null, data: null }) } });
       setIsLocating(false);
     });
   };
@@ -219,17 +289,24 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [budgetRes, expensesRes] = await Promise.all([
+      const [budgetRes, expensesRes, subsRes, goalsRes] = await Promise.all([
         fetch("/api/budget"),
         fetch(`/api/expenses?period=${logPeriod}&limit=100`),
+        fetch("/api/subscriptions"),
+        fetch("/api/goals"),
       ]);
       const budgetData = await budgetRes.json();
       const expensesData = await expensesRes.json();
+      const subsData = await subsRes.json();
+      const goalsData = await goalsRes.json();
 
       setDailyBudget(budgetData.dailyBudget || 100);
       setExpenses(expensesData.expenses || []);
-      setSummary(expensesData.summary || { daily: 0, monthly: 0, yearly: 0, allTime: 0, maxExpense: null as any, avgDaily: 0, lateNight: { total: 0, count: 0 } });
-      setCharts(expensesData.charts || { categories: { week: [], month: [], year: [] }, dailyTrend: [], monthlyTrend: [], weeklyTrend: [], yearlyWeeklyTrend: [], weekdayPattern: [] });
+      setSummary(expensesData.summary);
+      setCharts(expensesData.charts);
+      setSubscriptions(subsData.subscriptions || []);
+      setDetectedSubscriptions(subsData.detected || []);
+      setGoals(goalsData || []);
 
       // Alerts
       const daily = budgetData.dailyBudget || 100;
@@ -262,38 +339,64 @@ export default function Dashboard() {
     // Budget Breach Alert (20% of monthly budget)
     const monthlyBudget = dailyBudget * 31;
     const amountNum = parseFloat(form.amount);
-    if (amountNum > monthlyBudget * 0.2) {
-      const confirmBreach = window.confirm(`⚠️ Flash Alert: This expense (₹${amountNum}) is more than 20% of your total monthly budget (₹${monthlyBudget}). Proceed?`);
-      if (!confirmBreach) return;
 
+    const proceedSubmit = async () => {
       // Send Email Notification
       fetch("/api/notify/breach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: amountNum, monthBudget: monthlyBudget, description: form.description }),
       }).catch(err => console.error("Email notify failed", err));
+
+      setSubmitting(true);
+      try {
+        const res = await fetch("/api/expenses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...form, amount: parseFloat(form.amount) }),
+        });
+        if (res.ok) {
+          setForm({ amount: "", category: CATEGORIES[0], description: "", date: getISTDate(), location: null });
+          fetchData();
+          setTab("overview");
+        }
+      } finally {
+        setSubmitting(false);
+      }
+    };
+
+    if (amountNum > monthlyBudget * 0.2) {
+      setModal({
+        type: "flash-alert",
+        data: {
+          message: `⚠️ Flash Alert: This expense (₹${amountNum}) is more than 20% of your total monthly budget (₹${monthlyBudget}). Proceed?`,
+          onConfirm: () => {
+            setModal({ type: null, data: null });
+            proceedSubmit();
+          }
+        }
+      });
+      return;
     }
 
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/expenses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, amount: parseFloat(form.amount) }),
-      });
-      if (res.ok) {
-        setForm({ amount: "", category: CATEGORIES[0], description: "", date: getISTDate(), location: null });
-        fetchData();
-        setTab("overview");
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    proceedSubmit();
   };
 
-  const handleDelete = async (id: string) => {
-    await fetch(`/api/expenses?id=${id}`, { method: "DELETE" });
-    fetchData();
+  const handleDelete = async (id: string, type: "expense" | "goal" | "subscription" = "expense") => {
+    setModal({
+      type: "confirm-delete",
+      data: {
+        id,
+        title: `Delete ${type.charAt(0).toUpperCase() + type.slice(1)}?`,
+        message: `Are you sure you want to remove this ${type}? This action cannot be undone.`,
+        onConfirm: async () => {
+          const endpoints = { expense: "/api/expenses", goal: "/api/goals", subscription: "/api/subscriptions" };
+          await fetch(`${endpoints[type]}?id=${id}`, { method: "DELETE" });
+          setModal({ type: null, data: null });
+          fetchData();
+        }
+      }
+    });
   };
 
   const handleBudgetSave = async () => {
@@ -514,21 +617,24 @@ export default function Dashboard() {
       )}
 
       {/* Tabs */}
-      <div style={{ padding: "16px 24px 0", display: "flex", gap: 6 }}>
+      <div style={{ padding: "16px 24px 0", display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8 }}>
         {([
           { id: "overview", label: "Overview", icon: LayoutDashboard },
           { id: "add", label: "Add Expense", icon: PlusCircle },
           { id: "charts", label: "Analytics", icon: BarChart3 },
           { id: "logs", label: "Logs", icon: List },
+          { id: "subscriptions", label: "Recurring", icon: RefreshCw },
+          { id: "goals", label: "Goals", icon: Wallet },
           { id: "chat", label: "AI Assistant", icon: Sparkles },
+          { id: "map", label: "Map", icon: Map },
         ] as const).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={tab === id ? "tab-active" : "tab-inactive"}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderRadius: 10, border: "none", cursor: "pointer", fontSize: 14, fontWeight: 500, fontFamily: "'Space Grotesk', sans-serif", transition: "all 0.2s" }}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderRadius: 10, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, fontFamily: "'Space Grotesk', sans-serif", transition: "all 0.2s", whiteSpace: "nowrap" }}
           >
-            <Icon size={15} />
+            <Icon size={14} />
             {label}
           </button>
         ))}
@@ -777,43 +883,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* MAP TAB */}
-        {tab === "map" && (
-          <div className="animate-slide-up">
-            <div className="card" style={{ padding: 24, minHeight: 600 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Spending Map</h2>
-                <div style={{ fontSize: 13, background: "rgba(124, 92, 252, 0.1)", color: "var(--accent)", padding: "4px 12px", borderRadius: 20, fontWeight: 600 }}>
-                  {expenses.filter(e => e.location).length} Geo-tagged
-                </div>
-              </div>
-              
-              <div id="spending-map-container" style={{ position: "relative" }}>
-                {!expenses.some(e => e.location) ? (
-                  <div style={{ height: 500, borderRadius: 16, background: "var(--bg3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center", padding: 40 }}>
-                    <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border)" }}>
-                      <Map size={32} style={{ opacity: 0.5 }} />
-                    </div>
-                    <div>
-                      <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>No map markers yet</h3>
-                      <p style={{ margin: 0, fontSize: 14, color: "var(--text2)", maxWidth: 300 }}>Tag your next expense with a location to see it appear on your spending hotspots map!</p>
-                    </div>
-                  </div>
-                ) : (
-                  <MapView expenses={expenses} />
-                )}
-              </div>
-
-              <div style={{ marginTop: 24, padding: "16px", background: "var(--bg3)", borderRadius: 12, border: "1px solid var(--border)" }}>
-                <h4 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 600 }}>Pro Tip: Location Insights</h4>
-                <p style={{ margin: 0, fontSize: 13, color: "var(--text2)", lineHeight: 1.5 }}>
-                  Use the map to identify areas where your spending is highest. This can help you find expensive habits tied to specific neighborhoods or stores.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* CHARTS TAB */}
         {tab === "charts" && (
           <div className="animate-slide-up">
@@ -865,6 +934,44 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 ) : <p style={{ color: "var(--text2)", fontSize: 13 }}>No data yet</p>}
               </div>
+            </div>
+
+            {/* MoM Comparison Chart */}
+            <div className="card" style={{ padding: 24, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Month-over-Month Comparison</h3>
+                <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: "var(--accent)" }} />
+                    <span style={{ color: "var(--text2)" }}>This Month ({fmt(summary.comparison.thisMonth.total)})</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: "var(--border2)" }} />
+                    <span style={{ color: "var(--text2)" }}>Last Month ({fmt(summary.comparison.lastMonth.total)})</span>
+                  </div>
+                </div>
+              </div>
+              
+              {(() => {
+                const comparisonData = CATEGORIES.map(cat => ({
+                  name: cat,
+                  thisMonth: (summary.comparison.thisMonth.categories as any[]).find((c: any) => c._id === cat)?.total || 0,
+                  lastMonth: (summary.comparison.lastMonth.categories as any[]).find((c: any) => c._id === cat)?.total || 0,
+                })).filter(d => d.thisMonth > 0 || d.lastMonth > 0);
+
+                return comparisonData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={comparisonData} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v}`} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(124, 92, 252, 0.05)" }} />
+                      <Bar dataKey="thisMonth" name="This Month" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="lastMonth" name="Last Month" fill="var(--border2)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <p style={{ color: "var(--text2)", fontSize: 13, textAlign: "center", padding: 40 }}>Not enough data for comparison yet.</p>;
+              })()}
             </div>
 
             {/* Daily trend full */}
@@ -946,6 +1053,218 @@ export default function Dashboard() {
                     </div>
                   ) : <p style={{ color: "var(--text2)", fontSize: 13 }}>No data yet</p>}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SUBSCRIPTIONS TAB */}
+        {tab === "subscriptions" && (
+          <div className="animate-slide-up">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+              {/* Detected Subscriptions */}
+              <div className="card" style={{ padding: 24 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+                  <Sparkles size={20} color="var(--accent)" />
+                  <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Detected Patterns</h2>
+                </div>
+                {detectedSubscriptions.length === 0 ? (
+                  <p style={{ color: "var(--text2)", fontSize: 14 }}>No recurring patterns detected yet. Keep logging!</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {detectedSubscriptions.map((ds, i) => (
+                      <div key={i} className="card" style={{ padding: 16, background: "var(--bg3)", border: "1px dashed var(--accent)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{ds.name}</h4>
+                            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text2)" }}>Appears {ds.occurrences} times recently</p>
+                          </div>
+                          <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--accent)" }}>₹{ds.amount}</p>
+                        </div>
+                        <button 
+                          className="btn-primary" 
+                          style={{ width: "100%", marginTop: 12, padding: "8px", fontSize: 12 }}
+                          onClick={async () => {
+                            await fetch("/api/subscriptions", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ ...ds, isAutoDetected: true })
+                            });
+                            fetchData();
+                          }}
+                        >
+                          Confirm as Subscription
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Active Subscriptions */}
+              <div className="card" style={{ padding: 24 }}>
+                <h2 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 700 }}>Active Subscriptions</h2>
+                {subscriptions.length === 0 ? (
+                  <p style={{ color: "var(--text2)", fontSize: 14 }}>Add or confirm subscriptions to track fixed costs.</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {subscriptions.map(s => (
+                      <div key={s._id} className="card" style={{ padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{s.name}</h4>
+                          <span style={{ fontSize: 11, background: "rgba(124, 92, 252, 0.1)", color: "var(--accent)", padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{s.category}</span>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <p style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>₹{s.amount}</p>
+                          <button 
+                            style={{ background: "none", border: "none", color: "#ff5370", fontSize: 11, cursor: "pointer", padding: 0 }}
+                            onClick={() => handleDelete(s._id, "subscription")}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ marginTop: 20, padding: 16, background: "var(--bg3)", borderRadius: 12, border: "1px solid var(--border)" }}>
+                      <p style={{ margin: 0, fontSize: 12, color: "var(--text2)" }}>Total Fixed Costs:</p>
+                      <p style={{ margin: "4px 0 0", fontSize: 24, fontWeight: 800, color: "var(--text)" }}>₹{subscriptions.reduce((sum, s) => sum + s.amount, 0)}<span style={{ fontSize: 14, fontWeight: 400, color: "var(--text2)" }}>/month</span></p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* GOALS TAB */}
+        {tab === "goals" && (
+          <div className="animate-slide-up">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24 }}>
+              {/* Goals List */}
+              <div className="card" style={{ padding: 24 }}>
+                <h2 style={{ margin: "0 0 24px", fontSize: 20, fontWeight: 700 }}>Savings Goals</h2>
+                {goals.length === 0 ? (
+                  <p style={{ color: "var(--text2)" }}>Set a goal to start tracking your savings progress!</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                    {goals.map(g => {
+                      const pct = Math.min((g.currentAmount / g.targetAmount) * 100, 100);
+                      return (
+                        <div key={g._id} className="card" style={{ padding: 20, borderLeft: `6px solid ${g.color || 'var(--accent)'}` }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 12 }}>
+                            <div>
+                              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{g.name}</h3>
+                              {g.deadline && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text2)" }}>Target: {fmtDate(g.deadline)}</p>}
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{fmt(g.currentAmount)}</p>
+                              <p style={{ margin: 0, fontSize: 12, color: "var(--text2)" }}>of {fmt(g.targetAmount)}</p>
+                            </div>
+                          </div>
+                          <div style={{ height: 12, background: "var(--bg3)", borderRadius: 6, overflow: "hidden", position: "relative" }}>
+                            <div style={{ position: "absolute", inset: 0, width: `${pct}%`, background: g.color || 'var(--accent)', transition: "width 0.5s ease" }} />
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, alignItems: "center" }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: g.color || 'var(--accent)' }}>{Math.round(pct)}% Complete</span>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button 
+                                className="nav-link" 
+                                style={{ padding: "4px 10px", fontSize: 12 }}
+                                onClick={() => setModal({ type: "add-funds", data: { id: g._id, name: g.name, current: g.currentAmount } })}
+                              >
+                                + Add Funds
+                              </button>
+                              <button 
+                                onClick={() => handleDelete(g._id, "goal")}
+                                style={{ background: "none", border: "none", color: "#ff5370", fontSize: 12, cursor: "pointer" }}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Add Goal Form */}
+              <div className="card" style={{ padding: 24, height: "fit-content" }}>
+                <h3 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 700 }}>🏆 Set New Goal</h3>
+                <form onSubmit={async (e: any) => {
+                  e.preventDefault();
+                  const target = e.target;
+                  await fetch("/api/goals", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      name: target.name.value,
+                      targetAmount: parseFloat(target.amount.value),
+                      deadline: target.deadline.value || undefined,
+                      color: target.color.value
+                    })
+                  });
+                  target.reset();
+                  fetchData();
+                }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6 }}>Goal Name</label>
+                      <input name="name" required className="input-field" placeholder="e.g. New Laptop" />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6 }}>Target Amount (₹)</label>
+                      <input name="amount" type="number" required className="input-field" placeholder="50000" />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6 }}>Target Date (Optional)</label>
+                      <input name="deadline" type="date" className="input-field" />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6 }}>Theme Color</label>
+                      <input name="color" type="color" defaultValue="#7c5cfc" style={{ width: "100%", height: 40, border: "none", background: "none", cursor: "pointer" }} />
+                    </div>
+                    <button type="submit" className="btn-primary" style={{ marginTop: 8 }}>Create Goal</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MAP TAB */}
+        {tab === "map" && (
+          <div className="animate-slide-up">
+            <div className="card" style={{ padding: 24, minHeight: 600 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Spending Map</h2>
+                <div style={{ fontSize: 13, background: "rgba(124, 92, 252, 0.1)", color: "var(--accent)", padding: "4px 12px", borderRadius: 20, fontWeight: 600 }}>
+                  {expenses.filter(e => e.location).length} Geo-tagged
+                </div>
+              </div>
+              
+              <div id="spending-map-container" style={{ position: "relative" }}>
+                {!expenses.some(e => e.location) ? (
+                  <div style={{ height: 500, borderRadius: 16, background: "var(--bg3)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center", padding: 40 }}>
+                    <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border)" }}>
+                      <Map size={32} style={{ opacity: 0.5 }} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>No map markers yet</h3>
+                      <p style={{ margin: 0, fontSize: 14, color: "var(--text2)", maxWidth: 300 }}>Tag your next expense with a location to see it appear on your spending hotspots map!</p>
+                    </div>
+                  </div>
+                ) : (
+                  <MapView expenses={expenses} />
+                )}
+              </div>
+
+              <div style={{ marginTop: 24, padding: "16px", background: "var(--bg3)", borderRadius: 12, border: "1px solid var(--border)" }}>
+                <h4 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 600 }}>Pro Tip: Location Insights</h4>
+                <p style={{ margin: 0, fontSize: 13, color: "var(--text2)", lineHeight: 1.5 }}>
+                  Use the map to identify areas where your spending is highest. This can help you find expensive habits tied to specific neighborhoods or stores.
+                </p>
               </div>
             </div>
           </div>
@@ -1057,6 +1376,73 @@ export default function Dashboard() {
         {/* AI CHAT TAB */}
         {tab === "chat" && <AIChat />}
       </div>
+
+      <Modal 
+        isOpen={modal.type === "confirm-delete"} 
+        onClose={() => setModal({ type: null, data: null })}
+        title={modal.data?.title || "Confirm Deletion"}
+        type="danger"
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "rgba(255, 83, 112, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+            <Trash2 size={24} color="var(--red)" />
+          </div>
+          <p style={{ margin: "0 0 24px", color: "var(--text2)", fontSize: 14, lineHeight: 1.6 }}>{modal.data?.message}</p>
+          <div style={{ display: "flex", gap: 12 }}>
+            <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setModal({ type: null, data: null })}>Cancel</button>
+            <button className="btn-primary" style={{ flex: 1, background: "var(--red)" }} onClick={modal.data?.onConfirm}>Delete</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal 
+        isOpen={modal.type === "add-funds"} 
+        onClose={() => setModal({ type: null, data: null })}
+        title={`Add Funds: ${modal.data?.name}`}
+      >
+        <form onSubmit={async (e: any) => {
+          e.preventDefault();
+          const amt = parseFloat(e.target.amount.value);
+          if (amt > 0) {
+            await fetch("/api/goals", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: modal.data.id, currentAmount: modal.data.current + amt })
+            });
+            setModal({ type: null, data: null });
+            fetchData();
+          }
+        }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8 }}>Amount to add (₹)</label>
+              <input name="amount" type="number" required autoFocus className="input-field" placeholder="1000" />
+            </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setModal({ type: null, data: null })}>Cancel</button>
+              <button type="submit" className="btn-primary" style={{ flex: 1 }}>Confirm</button>
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal 
+        isOpen={modal.type === "flash-alert"} 
+        onClose={() => setModal({ type: null, data: null })}
+        title="⚠️ Flash Alert"
+        type="danger"
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "rgba(255, 83, 112, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+            <AlertTriangle size={24} color="var(--red)" />
+          </div>
+          <p style={{ margin: "0 0 24px", color: "var(--text2)", fontSize: 14, lineHeight: 1.6 }}>{modal.data?.message}</p>
+          <div style={{ display: "flex", gap: 12 }}>
+            <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setModal({ type: null, data: null })}>Go Back</button>
+            <button className="btn-primary" style={{ flex: 1, background: "var(--red)" }} onClick={modal.data?.onConfirm}>Proceed Anyway</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

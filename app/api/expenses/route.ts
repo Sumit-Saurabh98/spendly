@@ -210,6 +210,22 @@ export async function GET(req: NextRequest) {
       { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
     ]);
 
+    // MoM Comparison: Current Month vs Last Month
+    const lastMonthStart = new Date(monthStart);
+    lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
+    const lastMonthEnd = new Date(monthStart);
+
+    const lastMonthAgg = await ExpenseModel.aggregate([
+      { $match: { date: { $gte: lastMonthStart, $lt: lastMonthEnd } } },
+      { $group: { _id: null, total: { $sum: "$amount" } } }
+    ]);
+
+    const lastMonthCategories = await ExpenseModel.aggregate([
+      { $match: { date: { $gte: lastMonthStart, $lt: lastMonthEnd } } },
+      { $group: { _id: "$category", total: { $sum: "$amount" } } },
+      { $sort: { total: -1 } }
+    ]);
+
     return NextResponse.json({
       expenses,
       total,
@@ -223,6 +239,10 @@ export async function GET(req: NextRequest) {
         maxExpense: maxExpense || null,
         avgDaily,
         lateNight: lateNightAgg[0] || { total: 0, count: 0 },
+        comparison: {
+          thisMonth: { total: monthlyAgg[0]?.total || 0, categories: categoryMonth },
+          lastMonth: { total: lastMonthAgg[0]?.total || 0, categories: lastMonthCategories }
+        }
       },
       charts: {
         categories: {
