@@ -53,24 +53,32 @@ export async function GET(req: NextRequest) {
     
     const offset = getOffset(now, userTz);
     
-    const todayLocal = new Date(`${p.year}-${p.month}-${p.day}T00:00:00${offset}`);
-    const tomorrowLocal = new Date(todayLocal);
-    tomorrowLocal.setDate(todayLocal.getDate() + 1);
+    const today = new Date(`${p.year}-${p.month}-${p.day}T00:00:00${offset}`);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
 
-    const monthStartLocal = new Date(`${p.year}-${p.month}-01T00:00:00${offset}`);
-    const nextMonthLocal = new Date(monthStartLocal);
-    nextMonthLocal.setMonth(nextMonthLocal.getMonth() + 1);
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6);
 
-    const yearStartLocal = new Date(`${p.year}-01-01T00:00:00${offset}`);
-    const nextYearLocal = new Date(yearStartLocal);
-    nextYearLocal.setFullYear(nextYearLocal.getFullYear() + 1);
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 29);
 
-    const today = todayLocal;
-    const tomorrow = tomorrowLocal;
-    const monthStart = monthStartLocal;
-    const nextMonth = nextMonthLocal;
-    const yearStart = yearStartLocal;
-    const nextYear = nextYearLocal;
+    const oneYearAgo = new Date(today);
+    oneYearAgo.setDate(today.getDate() - 364);
+
+    const fiveYearsAgo = new Date(today);
+    fiveYearsAgo.setFullYear(today.getFullYear() - 5);
+
+    const sixMonthsAgo = new Date(today);
+    sixMonthsAgo.setMonth(today.getMonth() - 6);
+
+    const monthStart = new Date(`${p.year}-${p.month}-01T00:00:00${offset}`);
+    const nextMonth = new Date(monthStart);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+    const yearStart = new Date(`${p.year}-01-01T00:00:00${offset}`);
+    const nextYear = new Date(yearStart);
+    nextYear.setFullYear(nextYear.getFullYear() + 1);
 
     let dateFilter: any = {};
 
@@ -100,77 +108,115 @@ export async function GET(req: NextRequest) {
     const userDailyBudget = user.dailyBudget || 100;
 
     // Summaries utilizing the same date boundaries
-    const [dailyAgg, dailyIncidentalAgg, monthlyAgg, monthlyIncidentalAgg, yearlyAgg, allTimeAgg, subscriptionsAgg] =
-      await Promise.all([
-        ExpenseModel.aggregate([
-          {
-            $match: {
-              userId,
-              date: { $gte: today, $lt: tomorrow },
-              subscriptionId: null,
-              type: "daily",
-            },
+    const [
+      dailyAgg,
+      dailyIncidentalAgg,
+      monthlyAgg,
+      monthlyIncidentalAgg,
+      yearlyAgg,
+      allTimeAgg,
+      totalMonthAgg,
+      totalSixMonthAgg,
+      totalYearAgg,
+      subscriptionsAgg,
+    ] = await Promise.all([
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: today, $lt: tomorrow },
+            subscriptionId: null,
+            type: "daily",
           },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        ExpenseModel.aggregate([
-          {
-            $match: {
-              userId,
-              date: { $gte: today, $lt: tomorrow },
-              subscriptionId: null,
-              type: "incidental",
-            },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: today, $lt: tomorrow },
+            subscriptionId: null,
+            type: "incidental",
           },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        ExpenseModel.aggregate([
-          {
-            $match: {
-              userId,
-              date: { $gte: monthStart, $lt: nextMonth },
-              subscriptionId: null,
-              type: "daily",
-            },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: monthStart, $lt: nextMonth },
+            subscriptionId: null,
+            type: "daily",
           },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        ExpenseModel.aggregate([
-          {
-            $match: {
-              userId,
-              date: { $gte: monthStart, $lt: nextMonth },
-              subscriptionId: null,
-              type: "incidental",
-            },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: monthStart, $lt: nextMonth },
+            subscriptionId: null,
+            type: "incidental",
           },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        ExpenseModel.aggregate([
-          {
-            $match: {
-              userId,
-              date: { $gte: yearStart, $lt: nextYear },
-              subscriptionId: null,
-            },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: yearStart, $lt: nextYear },
+            subscriptionId: null,
+            type: "daily",
           },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        ExpenseModel.aggregate([
-          { $match: { userId, subscriptionId: null } },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-        ExpenseModel.aggregate([
-          {
-            $match: {
-              userId,
-              date: { $gte: monthStart, $lt: nextMonth },
-              subscriptionId: { $ne: null },
-            },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        { $match: { userId, subscriptionId: null, type: "daily" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: monthStart, $lt: nextMonth },
           },
-          { $group: { _id: null, total: { $sum: "$amount" } } },
-        ]),
-      ]);
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: sixMonthsAgo, $lt: tomorrow },
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: yearStart, $lt: nextYear },
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      ExpenseModel.aggregate([
+        {
+          $match: {
+            userId,
+            date: { $gte: monthStart, $lt: nextMonth },
+            subscriptionId: { $ne: null },
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+    ]);
 
     // Category breakdown for charts (limited to current year) - EXCLUDING subscriptions
     const weekStart = new Date(today);
@@ -225,25 +271,116 @@ export async function GET(req: NextRequest) {
       { $sort: { total: -1 } },
     ]);
 
-    // Daily spending trend (last 30 days) - EXCLUDING subscriptions
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
-    const dailyTrend = await ExpenseModel.aggregate([
+    // 3. Multi-Period Aggregations for Charts
+    const getDailyTrend = async (startDate: Date) => {
+      return await ExpenseModel.aggregate([
+        { $match: { userId, date: { $gte: startDate }, subscriptionId: null, type: "daily" } },
+        {
+          $group: {
+            _id: {
+              year: { $year: { date: "$date", timezone: userTz } },
+              month: { $month: { date: "$date", timezone: userTz } },
+              day: { $dayOfMonth: { date: "$date", timezone: userTz } },
+            },
+            total: { $sum: "$amount" },
+          },
+        },
+        { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
+      ]);
+    };
+
+    const getTotalTrend = async (startDate: Date) => {
+      return await ExpenseModel.aggregate([
+        { $match: { userId, date: { $gte: startDate } } },
+        {
+          $group: {
+            _id: {
+              year: { $year: { date: "$date", timezone: userTz } },
+              month: { $month: { date: "$date", timezone: userTz } },
+              day: { $dayOfMonth: { date: "$date", timezone: userTz } },
+            },
+            total: { $sum: "$amount" },
+          },
+        },
+        { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
+      ]);
+    };
+
+    const totalDailyTrendWeek = await getTotalTrend(sevenDaysAgo);
+    const totalDailyTrendMonth = await getTotalTrend(thirtyDaysAgo);
+    const totalDailyTrendYear = await ExpenseModel.aggregate([
       {
-        $match: { userId, date: { $gte: thirtyDaysAgo }, subscriptionId: null },
+        $match: {
+          userId,
+          date: { $gte: yearStart, $lt: nextYear },
+        },
       },
       {
         $group: {
-          _id: {
-            year: { $year: { date: "$date", timezone: userTz } },
-            month: { $month: { date: "$date", timezone: userTz } },
-            day: { $dayOfMonth: { date: "$date", timezone: userTz } },
-          },
+          _id: { week: { $week: { date: "$date", timezone: userTz } }, year: { $year: { date: "$date", timezone: userTz } } },
           total: { $sum: "$amount" },
-          count: { $sum: 1 },
         },
       },
-      { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
+      { $sort: { "_id.year": 1, "_id.week": 1 } },
+    ]);
+
+    const getDayPattern = async (startDate: Date) => {
+      return await ExpenseModel.aggregate([
+        { $match: { userId, date: { $gte: startDate }, subscriptionId: null } },
+        {
+          $group: {
+            _id: { $dayOfWeek: { date: "$date", timezone: userTz } },
+            total: { $sum: "$amount" },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]);
+    };
+
+    const getVelocity = async (startDate: Date, days: number) => {
+      const expenses = await ExpenseModel.find({
+        userId,
+        date: { $gte: startDate, $lt: tomorrow },
+        type: "incidental",
+        subscriptionId: null
+      }).sort({ date: 1 }).lean();
+
+      const budgetPerDay = (user.monthlyIncidentalBudget || 1000) / 30;
+      let cumulative = 0;
+      
+      // Group by day offset
+      const dailyMap: Record<number, number> = {};
+      expenses.forEach(ex => {
+        const d = new Date(ex.date);
+        const dayDiff = Math.floor((d.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (dayDiff >= 0 && dayDiff < days) {
+          dailyMap[dayDiff] = (dailyMap[dayDiff] || 0) + ex.amount;
+        }
+      });
+
+      return Array.from({ length: days }, (_, i) => {
+        cumulative += dailyMap[i] || 0;
+        return {
+          day: i + 1,
+          actual: cumulative,
+          ideal: budgetPerDay * (i + 1)
+        };
+      });
+    };
+
+    const [
+      dailyTrendWeek, dailyTrendMonth,
+      dayPatternWeek, dayPatternMonth, dayPatternYear,
+      velocityWeek, velocityMonth, velocityYear
+    ] = await Promise.all([
+      getDailyTrend(sevenDaysAgo),
+      getDailyTrend(thirtyDaysAgo),
+      getDayPattern(sevenDaysAgo),
+      getDayPattern(thirtyDaysAgo),
+      getDayPattern(oneYearAgo), // Corrected to use oneYearAgo
+      getVelocity(sevenDaysAgo, 7),
+      getVelocity(thirtyDaysAgo, 30),
+      getVelocity(oneYearAgo, 365),
     ]);
 
     // Top single expense this month - EXCLUDING subscriptions
@@ -300,24 +437,8 @@ export async function GET(req: NextRequest) {
       { $sort: { "_id.year": 1, "_id.month": 1 } },
     ]);
 
-    // Weekly pattern (day of week) - EXCLUDING subscriptions
-    const weeklyAgg = await ExpenseModel.aggregate([
-      {
-        $match: { userId, date: { $gte: thirtyDaysAgo }, subscriptionId: null },
-      },
-      {
-        $group: {
-          _id: { $dayOfWeek: { date: "$date", timezone: userTz } },
-          total: { $sum: "$amount" },
-          count: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
 
     // Weekly trend (last 7 days - date wise)
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 6);
     const weeklyTrend = await ExpenseModel.aggregate([
       {
         $match: { userId, date: { $gte: sevenDaysAgo }, subscriptionId: null },
@@ -336,13 +457,11 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Yearly trend (last 52 weeks - week wise) - EXCLUDING subscriptions
-    const fiftyTwoWeeksAgo = new Date(today);
-    fiftyTwoWeeksAgo.setDate(today.getDate() - 364);
     const yearlyWeeklyTrend = await ExpenseModel.aggregate([
       {
         $match: {
           userId,
-          date: { $gte: fiftyTwoWeeksAgo },
+          date: { $gte: oneYearAgo },
           subscriptionId: null,
         },
       },
@@ -353,6 +472,25 @@ export async function GET(req: NextRequest) {
         },
       },
       { $sort: { "_id.year": 1, "_id.week": 1 } },
+    ]);
+
+    // Monthly Incidental Trend (last 5 years)
+    const monthlyIncidentalTrend = await ExpenseModel.aggregate([
+      {
+        $match: {
+          userId,
+          date: { $gte: fiveYearsAgo },
+          type: "incidental",
+          subscriptionId: null,
+        },
+      },
+      {
+        $group: {
+          _id: { year: { $year: { date: "$date", timezone: userTz } }, month: { $month: { date: "$date", timezone: userTz } } },
+          total: { $sum: "$amount" },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
     ]);
 
     // MoM Comparison: Current Month vs Last Month - EXCLUDING subscriptions
@@ -421,6 +559,9 @@ export async function GET(req: NextRequest) {
         monthlyIncidental: monthlyIncidentalAgg[0]?.total || 0,
         yearly: yearlyAgg[0]?.total || 0,
         allTime: allTimeAgg[0]?.total || 0,
+        totalMonth: totalMonthAgg[0]?.total || 0,
+        totalSixMonth: totalSixMonthAgg[0]?.total || 0,
+        totalYear: totalYearAgg[0]?.total || 0,
         subscriptionTotal: subscriptionsAgg[0]?.total || 0,
         streak: currentStreak,
         maxStreak: Math.max(currentStreak, user.maxStreak || 0),
@@ -465,38 +606,31 @@ export async function GET(req: NextRequest) {
           month: categoryMonth,
           year: categoryYear,
         },
-        dailyTrend, // 30 days
-        monthlyTrend, // 12 months
-        weeklyTrend, // 7 days
-        yearlyWeeklyTrend, // 52 weeks
-        weekdayPattern: weeklyAgg,
-        velocityData: (() => {
-          const currentMonthParts = getParts(now);
-          const year = parseInt(currentMonthParts.year || "0");
-          const month = parseInt(currentMonthParts.month || "0") - 1; // 0-indexed
-          const day = parseInt(currentMonthParts.day || "0"); // 1-indexed
-
-          const daysInMonth = new Date(year, month + 1, 0).getDate();
-          const idealDaily = (user.monthlyIncidentalBudget || 1000) / daysInMonth;
-          let cumulativeActual = 0;
-          return Array.from({ length: day }, (_, i) => {
-            const dayNum = i + 1;
-            const dayExpenses = expenses.filter(ex => {
-              const d = new Date(ex.date);
-              const expenseParts = getParts(d);
-              return parseInt(expenseParts.day || "0") === dayNum && parseInt(expenseParts.month || "0") - 1 === month && ex.type === "incidental";
-            });
-            cumulativeActual += dayExpenses.reduce((sum, ex) => sum + ex.amount, 0);
-            return {
-              day: dayNum,
-              actual: cumulativeActual,
-              ideal: idealDaily * dayNum
-            };
-          });
-        })(),
+        dailyTrend: {
+          week: dailyTrendWeek,
+          month: dailyTrendMonth,
+          year: yearlyWeeklyTrend, // For year view, we use weekly breakdown to remain efficient
+        },
+        monthlyTrend, // Still 12 months as usual
+        weeklyPattern: {
+          week: dayPatternWeek,
+          month: dayPatternMonth,
+          year: dayPatternYear,
+        },
+        velocityData: {
+          week: velocityWeek,
+          month: velocityMonth,
+          year: velocityYear,
+        },
+        totalSpendingTrend: {
+          week: totalDailyTrendWeek,
+          month: totalDailyTrendMonth,
+          year: totalDailyTrendYear,
+        },
+        monthlyIncidentalTrend,
         essentialsRatio: await (async () => {
-          const sevenDaysAgo = new Date(today);
-          sevenDaysAgo.setDate(today.getDate() - 7);
+          const ratioSevenDaysAgo = new Date(today);
+          ratioSevenDaysAgo.setDate(today.getDate() - 7);
           
           const getRatioAgg = async (start: Date, end: Date) => {
             return ExpenseModel.aggregate([

@@ -142,24 +142,63 @@ interface Goal {
   color: string;
 }
 
+interface Summary {
+  daily: number;
+  dailyIncidental: number;
+  monthly: number;
+  monthlyIncidental: number;
+  yearly: number;
+  allTime: number;
+  maxExpense: any | null;
+  avgDaily: number;
+  topCategoryWeek: any | null;
+  streak: number;
+  maxStreak: number;
+  monthlyIncidentalBudget: number;
+  comparison: {
+    thisMonth: { total: number; categories: any[] };
+    lastMonth: { total: number; categories: any[] };
+  };
+  forecast: { projected: number; totalDays: number; currentDay: number; daysRemaining: number };
+  subscriptionTotal: number;
+  totalMonth: number;
+  totalSixMonth: number;
+  totalYear: number;
+}
+
 interface ChartData {
   categories: {
-    week: { _id: string; total: number; count: number }[];
-    month: { _id: string; total: number; count: number }[];
-    year: { _id: string; total: number; count: number }[];
+    week: any[];
+    month: any[];
+    year: any[];
   };
-  dailyTrend: { _id: { year: number; month: number; day: number }; total: number; count: number }[];
-  monthlyTrend: { _id: { year: number; month: number }; total: number; count: number }[];
-  weeklyTrend: { _id: { year: number; month: number; day: number }; total: number; count: number }[];
-  yearlyWeeklyTrend: { _id: { year: number; week: number }; total: number; count: number }[];
-  weekdayPattern: { _id: number; total: number; count: number }[];
-  velocityData: { day: number; actual: number; ideal: number }[];
+  dailyTrend: {
+    week: any[];
+    month: any[];
+    year: any[];
+  };
+  totalSpendingTrend: {
+    week: any[];
+    month: any[];
+    year: any[];
+  };
+  monthlyTrend: any[];
+  weeklyPattern: {
+    week: any[];
+    month: any[];
+    year: any[];
+  };
+  velocityData: {
+    week: any[];
+    month: any[];
+    year: any[];
+  };
   essentialsRatio: {
-    week: { name: string; value: number; color: string }[];
-    month: { name: string; value: number; color: string }[];
-    year: { name: string; value: number; color: string }[];
+    week: any[];
+    month: any[];
+    year: any[];
   };
-  incidentalDayPattern: { _id: number; total: number; count: number }[];
+  monthlyIncidentalTrend: { _id: { year: number; month: number }; total: number }[];
 }
 
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -192,14 +231,20 @@ export default function Dashboard() {
     monthlyIncidentalBudget: 1000,
     comparison: { thisMonth: { total: 0, categories: [] }, lastMonth: { total: 0, categories: [] } },
     forecast: { projected: 0, totalDays: 30, currentDay: 1, daysRemaining: 29 },
-    subscriptionTotal: 0
+    subscriptionTotal: 0,
+    totalMonth: 0,
+    totalSixMonth: 0,
+    totalYear: 0
   });
   const [charts, setCharts] = useState<ChartData>({
     categories: { week: [], month: [], year: [] },
-    dailyTrend: [], monthlyTrend: [], weeklyTrend: [], yearlyWeeklyTrend: [], weekdayPattern: [],
-    velocityData: [], 
-    essentialsRatio: { week: [], month: [], year: [] }, 
-    incidentalDayPattern: []
+    dailyTrend: { week: [], month: [], year: [] }, 
+    totalSpendingTrend: { week: [], month: [], year: [] },
+    monthlyTrend: [], 
+    weeklyPattern: { week: [], month: [], year: [] },
+    velocityData: { week: [], month: [], year: [] }, 
+    essentialsRatio: { week: [], month: [], year: [] },
+    monthlyIncidentalTrend: []
   });
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [detectedSubscriptions, setDetectedSubscriptions] = useState<any[]>([]);
@@ -214,9 +259,16 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState<string[]>([]);
   const [showReminder, setShowReminder] = useState(false);
   const [logPeriod, setLogPeriod] = useState<"day" | "month" | "year" | "all">("month");
-  const [trendPeriod, setTrendPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
+  const [trendPeriod, setTrendPeriod] = useState<"week" | "month" | "year">("month");
   const [ratioPeriod, setRatioPeriod] = useState<"week" | "month" | "year">("month");
   const [categoryPeriod, setCategoryPeriod] = useState<"week" | "month" | "year">("year");
+  const [dailyTrendPeriod, setDailyTrendPeriod] = useState<"week" | "month" | "year">("month");
+  const [monthlyTrendPeriod, setMonthlyTrendPeriod] = useState<"week" | "month" | "year">("year");
+  const [weeklyPatternPeriod, setWeeklyPatternPeriod] = useState<"week" | "month" | "year">("month");
+  const [velocityPeriod, setVelocityPeriod] = useState<"week" | "month" | "year">("month");
+  const [incidentalPeriod, setIncidentalPeriod] = useState<"week" | "month" | "year">("month");
+  const [incidentalTrendPeriod, setIncidentalTrendPeriod] = useState<number>(1);
+  const [totalTrendPeriod, setTotalTrendPeriod] = useState<"week" | "month" | "year">("month");
 
   const fmt = (n: number) =>
     new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "INR", maximumFractionDigits: 0 }).format(n);
@@ -546,55 +598,53 @@ export default function Dashboard() {
     fetchData();
   };
 
-  const monthly = dailyBudget * 31;
-  const yearly = dailyBudget * 31 * 12;
+  const monthlySurvivalBudget = dailyBudget * (summary.forecast?.totalDays || 31);
+  const yearlySurvivalBudget = dailyBudget * 365;
 
   const dailyPct = Math.min((summary.daily / dailyBudget) * 100, 100);
-  const monthlyPct = Math.min((summary.monthly / monthly) * 100, 100);
-  const yearlyPct = Math.min((summary.yearly / yearly) * 100, 100);
 
   const progressColor = (pct: number) =>
     pct >= 100 ? "#ff5370" : pct >= 80 ? "#ffd166" : "#22d3a0";
 
   // Chart data formatting
   const trendData = (() => {
-    if (trendPeriod === "weekly") {
-      return (charts.weeklyTrend || []).map((d) => ({
-        name: `${d._id.day} ${MONTH_NAMES[d._id.month - 1]}`,
-        spent: d.total,
-        budget: dailyBudget,
-      }));
-    } else if (trendPeriod === "yearly") {
-      return (charts.yearlyWeeklyTrend || []).map((d) => ({
-        name: `W${d._id.week}`,
-        spent: d.total,
-        budget: dailyBudget * 7,
-      }));
-    }
-    return (charts.dailyTrend || []).map((d) => ({
-      name: `${d._id.day} ${MONTH_NAMES[d._id.month - 1]}`,
+    const rawData = charts.dailyTrend[trendPeriod] || [];
+    return rawData.map((d: any) => ({
+      name: trendPeriod === "year" ? `W${d._id.week}` : `${d._id.day} ${MONTH_NAMES[d._id.month - 1]}`,
       spent: d.total,
-      budget: dailyBudget,
+      budget: trendPeriod === "year" ? dailyBudget * 7 : dailyBudget,
     }));
   })();
 
-  const dailyTrendData = charts.dailyTrend.map((d) => ({
+  const dailyTrendData = (charts.dailyTrend[dailyTrendPeriod] || []).map((d: any) => ({
     name: `${d._id.day} ${MONTH_NAMES[d._id.month - 1]}`,
     spent: d.total,
     budget: dailyBudget,
   }));
 
-  const monthlyTrendData = charts.monthlyTrend.map((d) => ({
+  const monthlyTrendData = charts.monthlyTrend.map((d: any) => ({
     name: `${MONTH_NAMES[d._id.month - 1]} ${d._id.year}`,
     spent: d.total,
-    budget: monthly,
+    budget: dailyBudget * 30,
   }));
 
   const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const weeklyTrendData = (charts.weekdayPattern || []).map((d) => ({
+  const weeklyTrendData = (charts.weeklyPattern[weeklyPatternPeriod] || []).map((d) => ({
     name: WEEKDAYS[(d._id as any) - 1],
     spent: d.total,
   })).sort((a,b) => WEEKDAYS.indexOf(a.name) - WEEKDAYS.indexOf(b.name));
+
+  const incidentalTrendData = (charts.monthlyIncidentalTrend || [])
+    .filter(d => d._id.year >= (new Date().getFullYear() - incidentalTrendPeriod + 1))
+    .map(d => ({
+      name: `${MONTH_NAMES[d._id.month - 1]} ${d._id.year}`,
+      spent: d.total
+    }));
+
+  const totalSpendingTrendData = (charts.totalSpendingTrend?.[totalTrendPeriod] || []).map((d: any) => ({
+    name: totalTrendPeriod === "year" ? `W${d._id.week}` : `${d._id.day} ${MONTH_NAMES[d._id.month - 1]}`,
+    spent: d.total,
+  }));
 
   const currentCategories = charts.categories[categoryPeriod] || [];
   const pieData = currentCategories.map((c, i) => ({
@@ -996,11 +1046,45 @@ export default function Dashboard() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 20 }}>
               {[
                 { label: "Daily Survival", spent: summary.daily, budget: dailyBudget, color: "var(--accent)", icon: IndianRupee },
-                { label: "Monthly Total", spent: summary.monthly, budget: monthly, color: "var(--blue)", icon: TrendingUp },
-                { label: "Monthly Random", spent: summary.monthlyIncidental, budget: summary.monthlyIncidentalBudget, color: "#f72585", icon: Sparkles },
-              ].map(({ label, spent, budget, color, icon: Icon }) => {
-                const pct = Math.min((spent / budget) * 100, 100);
-                const remaining = budget - spent;
+                { label: "Monthly Total", spent: summary.monthly, budget: monthlySurvivalBudget, color: "var(--blue)", icon: TrendingUp },
+                { label: "Yearly Total", spent: summary.yearly, budget: yearlySurvivalBudget, color: "#f72585", icon: CalendarDays },
+                { 
+                  label: "Total Spending", 
+                  spent: summary.totalMonth, 
+                  budget: summary.totalSixMonth, // Abuse budget slot for secondary stat display if needed, but better to keep it clean
+                  color: "var(--green)", 
+                  icon: BarChart3,
+                  substats: [
+                    { label: "1M", value: summary.totalMonth },
+                    { label: "6M", value: summary.totalSixMonth },
+                    { label: "1Y", value: summary.totalYear }
+                  ]
+                },
+              ].map((card) => {
+                const { label, spent, budget, color, icon: Icon, substats } = card as any;
+                const pct = budget ? Math.min((spent / budget) * 100, 100) : 0;
+                const remaining = budget ? budget - spent : 0;
+                
+                if (substats) {
+                  return (
+                    <div key={label} className="card card-hover" style={{ padding: "18px 20px", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+                        <Icon size={14} color={color} />
+                        <span style={{ fontSize: 11, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{label}</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                         {substats.map((s: any) => (
+                           <div key={s.label}>
+                             <div style={{ fontSize: 9, color: "var(--text2)", fontWeight: 700 }}>{s.label}</div>
+                             <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)" }}>{fmt(s.value)}</div>
+                           </div>
+                         ))}
+                      </div>
+                      <div style={{ marginTop: 12, fontSize: 10, color: "var(--green)", fontWeight: 700 }}>Combined Total Expenses</div>
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={label} className="card card-hover" style={{ padding: "18px 20px", position: "relative", overflow: "hidden" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
@@ -1040,9 +1124,9 @@ export default function Dashboard() {
                   value={trendPeriod}
                   onChange={(e) => setTrendPeriod(e.target.value as any)}
                 >
-                  <option value="weekly">Last 7d</option>
-                  <option value="monthly">Last 30d</option>
-                  <option value="yearly">Last 1y</option>
+                  <option value="week">7 Days</option>
+                  <option value="month">1 Month</option>
+                  <option value="year">1 Year</option>
                 </select>
               </div>
               <ResponsiveContainer width="100%" height={160}>
@@ -1054,7 +1138,7 @@ export default function Dashboard() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text2)" }} tickLine={false} axisLine={false} interval={trendPeriod === "yearly" ? 4 : 1} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text2)" }} tickLine={false} axisLine={false} interval={trendPeriod === "year" ? 4 : 1} />
                   <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v}`} />
                   <Tooltip content={<CustomTooltip />} cursor={false} />
                   <Area type="monotone" dataKey="spent" name="Spent" stroke="#7c5cfc" fill="url(#spendGrad)" strokeWidth={2} dot={false} />
@@ -1073,13 +1157,13 @@ export default function Dashboard() {
                   </h3>
                   <select 
                     className="input-field" 
-                    style={{ width: 80, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                    style={{ width: 100, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
                     value={ratioPeriod}
                     onChange={(e) => setRatioPeriod(e.target.value as any)}
                   >
-                    <option value="week">7d</option>
-                    <option value="month">1mo</option>
-                    <option value="year">1yr</option>
+                    <option value="week">7 Days</option>
+                    <option value="month">1 Month</option>
+                    <option value="year">1 Year</option>
                   </select>
                 </div>
                 <div style={{ height: 200, position: "relative" }}>
@@ -1118,11 +1202,23 @@ export default function Dashboard() {
 
               {/* Incidental Velocity Chart */}
               <div className="card" style={{ padding: 20 }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  Incidental Burn Rate
-                </h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    Spending Velocity
+                  </h3>
+                  <select 
+                    className="input-field" 
+                    style={{ width: 100, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                    value={velocityPeriod}
+                    onChange={(e) => setVelocityPeriod(e.target.value as any)}
+                  >
+                    <option value="week">7 Days</option>
+                    <option value="month">1 Month</option>
+                    <option value="year">1 Year</option>
+                  </select>
+                </div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={charts.velocityData || []}>
+                  <AreaChart data={charts.velocityData[velocityPeriod] || []}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                     <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v}`} />
@@ -1136,17 +1232,29 @@ export default function Dashboard() {
 
             {/* Weekend/Day-of-Week Heatmap */}
             <div className="card" style={{ padding: 20, marginTop: 20 }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  Random Spending Day-Pattern (Last 30d)
-                </h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    Incidental Day-Pattern
+                  </h3>
+                  <select 
+                    className="input-field" 
+                    style={{ width: 100, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                    value={incidentalPeriod}
+                    onChange={(e) => setIncidentalPeriod(e.target.value as any)}
+                  >
+                    <option value="week">7 Days</option>
+                    <option value="month">1 Month</option>
+                    <option value="year">1 Year</option>
+                  </select>
+                </div>
                 <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={(charts.incidentalDayPattern || []).map(d => ({ name: WEEKDAYS[d._id - 1], spent: d.total }))}>
+                  <BarChart data={(charts.weeklyPattern[incidentalPeriod] || []).map((d: any) => ({ name: WEEKDAYS[d._id - 1], spent: d.total }))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v}`} />
                     <Tooltip content={<CustomTooltip />} />
                     <Bar dataKey="spent" name="Spent" radius={[4, 4, 0, 0]}>
-                      {(charts.incidentalDayPattern || []).map((entry, index) => (
+                      {(charts.weeklyPattern[incidentalPeriod] || []).map((entry: any, index: number) => (
                         <Cell key={`cell-${index}`} fill={entry._id === 1 || entry._id === 7 ? "#f72585" : "#ffbd00"} />
                       ))}
                     </Bar>
@@ -1317,9 +1425,9 @@ export default function Dashboard() {
                     value={categoryPeriod}
                     onChange={(e) => setCategoryPeriod(e.target.value as any)}
                   >
-                    <option value="week">Week</option>
-                    <option value="month">Month</option>
-                    <option value="year">Year</option>
+                    <option value="week">7 Days</option>
+                    <option value="month">1 Month</option>
+                    <option value="year">1 Year</option>
                   </select>
                 </div>
                 {pieData.length > 0 ? (
@@ -1352,6 +1460,70 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 ) : <p style={{ color: "var(--text2)", fontSize: 13 }}>No data yet</p>}
               </div>
+            </div>
+
+            {/* Incidental Monthly Trend - New Card */}
+            <div className="card" style={{ padding: 24, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Incidental Spending History</h3>
+                <select 
+                  className="input-field" 
+                  style={{ width: 100, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                  value={incidentalTrendPeriod}
+                  onChange={(e) => setIncidentalTrendPeriod(parseInt(e.target.value))}
+                >
+                  <option value={1}>1 Year</option>
+                  <option value={2}>2 Years</option>
+                  <option value={3}>3 Years</option>
+                  <option value={4}>4 Years</option>
+                  <option value={5}>5 Years</option>
+                </select>
+              </div>
+              {incidentalTrendData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={incidentalTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} interval={incidentalTrendPeriod > 2 ? 2 : 0} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v}`} />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(124, 92, 252, 0.05)" }} />
+                    <Bar dataKey="spent" name="Spent" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <p style={{ color: "var(--text2)", fontSize: 13, textAlign: "center", padding: 40 }}>No incidental history available for this period.</p>}
+            </div>
+
+            {/* Total Expenses Trend - New Unified Chart */}
+            <div className="card" style={{ padding: 24, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Spending (All Types)</h3>
+                <select 
+                  className="input-field" 
+                  style={{ width: 100, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                  value={totalTrendPeriod}
+                  onChange={(e) => setTotalTrendPeriod(e.target.value as any)}
+                >
+                  <option value="week">7 Days</option>
+                  <option value="month">1 Month</option>
+                  <option value="year">1 Year</option>
+                </select>
+              </div>
+              {totalSpendingTrendData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={260}>
+                  <AreaChart data={totalSpendingTrendData}>
+                    <defs>
+                      <linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--green)" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="var(--green)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v}`} />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(34, 211, 160, 0.05)" }} />
+                    <Area type="monotone" dataKey="spent" name="Spent" stroke="var(--green)" fill="url(#totalGrad)" strokeWidth={3} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : <p style={{ color: "var(--text2)", fontSize: 13, textAlign: "center", padding: 40 }}>No total spending data available.</p>}
             </div>
 
             {/* MoM Comparison Chart */}
@@ -1394,7 +1566,19 @@ export default function Dashboard() {
 
             {/* Daily trend full */}
             <div className="card" style={{ padding: 20, marginBottom: 16 }}>
-              <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Daily Spending — Last 30 Days</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Daily Spending Trend</h3>
+                <select 
+                  className="input-field" 
+                  style={{ width: 100, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                  value={dailyTrendPeriod}
+                  onChange={(e) => setDailyTrendPeriod(e.target.value as any)}
+                >
+                  <option value="week">7 Days</option>
+                  <option value="month">1 Month</option>
+                  <option value="year">1 Year</option>
+                </select>
+              </div>
               {dailyTrendData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={dailyTrendData}>
@@ -1411,7 +1595,19 @@ export default function Dashboard() {
 
             {/* Monthly trend */}
             <div className="card" style={{ padding: 20 }}>
-              <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Monthly Spending — Last 12 Months</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Monthly Spending Trend</h3>
+                <select 
+                  className="input-field" 
+                  style={{ width: 100, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                  value={monthlyTrendPeriod}
+                  onChange={(e) => setMonthlyTrendPeriod(e.target.value as any)}
+                >
+                  <option value="week">7 Days</option>
+                  <option value="month">1 Month</option>
+                  <option value="year">1 Year</option>
+                </select>
+              </div>
               {monthlyTrendData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <AreaChart data={monthlyTrendData}>
@@ -1435,10 +1631,22 @@ export default function Dashboard() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginTop: 16 }}>
               {/* Weekly Pattern */}
               <div className="card" style={{ padding: 20 }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Weekly Pattern</h3>
-                {weeklyTrendData.length > 0 ? (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Weekly Pattern</h3>
+                <select 
+                  className="input-field" 
+                  style={{ width: 100, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                  value={weeklyPatternPeriod}
+                  onChange={(e) => setWeeklyPatternPeriod(e.target.value as any)}
+                >
+                  <option value="week">7 Days</option>
+                  <option value="month">1 Month</option>
+                  <option value="year">1 Year</option>
+                </select>
+              </div>
+                {charts.weeklyPattern[weeklyPatternPeriod]?.length > 0 ? (
                   <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={weeklyTrendData}>
+                    <BarChart data={(charts.weeklyPattern[weeklyPatternPeriod] || []).map((d: any) => ({ name: WEEKDAYS[d._id - 1], spent: d.total }))}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                       <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text2)" }} tickLine={false} axisLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v}`} />

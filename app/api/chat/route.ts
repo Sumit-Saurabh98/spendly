@@ -119,6 +119,21 @@ export async function POST(req: Request) {
             parameters: { type: "object", properties: {} },
           },
         },
+        {
+          type: "function",
+          function: {
+            name: "get_expense_logs",
+            description: "Get detailed expense logs for a specific number of days",
+            parameters: {
+              type: "object",
+              properties: {
+                days: { type: "number", description: "Number of days back to look for expenses (e.g., 7 for last week)" },
+                limit: { type: "number", description: "Maximum number of logs to return (default 20)" },
+              },
+              required: ["days"],
+            },
+          },
+        },
       ],
       max_tokens: 300,
     });
@@ -150,12 +165,15 @@ export async function POST(req: Request) {
           const today = new Date(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T00:00:00+05:30`);
           const monthStart = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
           const yearStart = new Date(`${year}-01-01T00:00:00+05:30`);
+          const sixMonthsAgo = new Date(today);
+          sixMonthsAgo.setMonth(today.getMonth() - 6);
 
-          const [user, daily, monthly, yearly, subs] = await Promise.all([
+          const [user, dailyTotal, monthlyTotal, sixMonthTotal, yearlyTotal, subs] = await Promise.all([
             UserModel.findById(userId),
-            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: today }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: monthStart }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: yearStart }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: today } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: monthStart } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: sixMonthsAgo } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: yearStart } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
             SubscriptionModel.find({ userId, isActive: true })
           ]);
 
@@ -163,11 +181,13 @@ export async function POST(req: Request) {
 
           result = JSON.stringify({
             budget: user?.dailyBudget || 100,
-            daily: daily[0]?.total || 0,
-            monthly: monthly[0]?.total || 0,
-            yearly: yearly[0]?.total || 0,
+            daily: dailyTotal[0]?.total || 0,
+            monthly: monthlyTotal[0]?.total || 0,
+            sixMonthTotal: sixMonthTotal[0]?.total || 0,
+            yearly: yearlyTotal[0]?.total || 0,
             subscriptionTotal: subTotal,
-            currency: `${userCurr} (${userSymbol})`
+            currency: `${userCurr} (${userSymbol})`,
+            note: "These totals include daily expenses, incidental spends, and recurring subscriptions."
           });
         } else if (tc.function.name === "search_expenses") {
           const args = JSON.parse(tc.function.arguments);
@@ -190,6 +210,26 @@ export async function POST(req: Request) {
         } else if (tc.function.name === "get_goals") {
           const goals = await GoalModel.find({ userId }).lean();
           result = JSON.stringify(goals);
+        } else if (tc.function.name === "get_expense_logs") {
+          const args = JSON.parse(tc.function.arguments);
+          const startDate = new Date();
+          startDate.setDate(startDate.getDate() - (args.days || 30));
+          
+          const logs = await ExpenseModel.find({
+            userId,
+            date: { $gte: startDate }
+          })
+          .sort({ date: -1 })
+          .limit(args.limit || 20)
+          .lean();
+          
+          result = JSON.stringify(logs.map(l => ({
+            date: new Date(l.date).toLocaleDateString(),
+            amount: l.amount,
+            category: l.category,
+            description: l.description,
+            type: l.type
+          })));
         }
 
         updatedMessages.push({
