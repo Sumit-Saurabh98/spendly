@@ -7,17 +7,17 @@ function calculateNextBillingDate(startDate: Date, frequency: string, latestPaym
   const toDateString = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
   
   const start = new Date(startDate);
-  const startStr = toDateString(start, tz);
+  const startStr = toDateString(start);
   
   if (!latestPaymentDate) return start;
-  const latestStr = toDateString(latestPaymentDate, tz);
+  const latestStr = toDateString(latestPaymentDate);
   
   if (latestStr < startStr) return start;
 
   let iterations = 0;
   let next = new Date(start);
   
-  while (toDateString(next, tz) <= latestStr) {
+  while (toDateString(next) <= latestStr) {
     iterations++;
     next = new Date(start);
     if (frequency === "weekly") {
