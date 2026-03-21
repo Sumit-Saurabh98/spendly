@@ -8,10 +8,10 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-export async function sendBreachEmail(amount: number, monthBudget: number, description: string) {
+export async function sendBreachEmail(toEmail: string, amount: number, monthBudget: number, description: string) {
   const mailOptions = {
     from: `${process.env.GMAIL_USER}`,
-    to: "sumitsaurabh112@gmail.com",
+    to: toEmail,
     subject: "⚠️ Budget Breach Alert - Expense Tracker",
     html: `
       <div style="font-family: sans-serif; padding: 24px; color: #1a1a1a; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">

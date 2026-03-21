@@ -6,6 +6,10 @@ export async function GET(req: NextRequest) {
   try {
     await connectDB();
     const { searchParams } = new URL(req.url);
+    const userId = req.headers.get("x-user-id");
+    if (!userId)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const period = searchParams.get("period"); // "day", "month", "year", "all"
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "50");
@@ -19,19 +23,23 @@ export async function GET(req: NextRequest) {
       day: "numeric",
     });
     const parts = formatter.formatToParts(now);
-    const getPart = (type: string) => parseInt(parts.find(p => p.type === type)?.value || "0");
-    
+    const getPart = (type: string) =>
+      parseInt(parts.find((p) => p.type === type)?.value || "0");
+
     const year = getPart("year");
     const month = getPart("month") - 1; // 0-indexed
     const day = getPart("day");
 
     // Start of the current day in Kolkata (in UTC)
-    // We create a string in a format that ensures it's interpreted as Kolkata time
-    const today = new Date(`${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}T00:00:00+05:30`);
+    const today = new Date(
+      `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}T00:00:00+05:30`,
+    );
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    const monthStart = new Date(`${year}-${String(month + 1).padStart(2, "0")}-01T00:00:00+05:30`);
+    const monthStart = new Date(
+      `${year}-${String(month + 1).padStart(2, "0")}-01T00:00:00+05:30`,
+    );
     const nextMonth = new Date(monthStart);
     nextMonth.setMonth(nextMonth.getMonth() + 1);
 
@@ -49,7 +57,10 @@ export async function GET(req: NextRequest) {
       dateFilter = { $gte: yearStart, $lt: nextYear };
     }
 
-    const query = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
+    const query = {
+      userId,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {}),
+    };
 
     const [expenses, total] = await Promise.all([
       ExpenseModel.find(query)
@@ -61,28 +72,53 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Summaries utilizing the same date boundaries
-    const [dailyAgg, monthlyAgg, yearlyAgg, allTimeAgg, subscriptionsAgg] = await Promise.all([
-      ExpenseModel.aggregate([
-        { $match: { date: { $gte: today, $lt: tomorrow }, subscriptionId: null } },
-        { $group: { _id: null, total: { $sum: "$amount" } } },
-      ]),
-      ExpenseModel.aggregate([
-        { $match: { date: { $gte: monthStart, $lt: nextMonth }, subscriptionId: null } },
-        { $group: { _id: null, total: { $sum: "$amount" } } },
-      ]),
-      ExpenseModel.aggregate([
-        { $match: { date: { $gte: yearStart, $lt: nextYear }, subscriptionId: null } },
-        { $group: { _id: null, total: { $sum: "$amount" } } },
-      ]),
-      ExpenseModel.aggregate([
-        { $match: { subscriptionId: null } },
-        { $group: { _id: null, total: { $sum: "$amount" } } },
-      ]),
-      ExpenseModel.aggregate([
-        { $match: { date: { $gte: monthStart, $lt: nextMonth }, subscriptionId: { $ne: null } } },
-        { $group: { _id: null, total: { $sum: "$amount" } } },
-      ]),
-    ]);
+    const [dailyAgg, monthlyAgg, yearlyAgg, allTimeAgg, subscriptionsAgg] =
+      await Promise.all([
+        ExpenseModel.aggregate([
+          {
+            $match: {
+              userId,
+              date: { $gte: today, $lt: tomorrow },
+              subscriptionId: null,
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+        ExpenseModel.aggregate([
+          {
+            $match: {
+              userId,
+              date: { $gte: monthStart, $lt: nextMonth },
+              subscriptionId: null,
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+        ExpenseModel.aggregate([
+          {
+            $match: {
+              userId,
+              date: { $gte: yearStart, $lt: nextYear },
+              subscriptionId: null,
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+        ExpenseModel.aggregate([
+          { $match: { userId, subscriptionId: null } },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+        ExpenseModel.aggregate([
+          {
+            $match: {
+              userId,
+              date: { $gte: monthStart, $lt: nextMonth },
+              subscriptionId: { $ne: null },
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+      ]);
 
     // Category breakdown for charts (limited to current year) - EXCLUDING subscriptions
     const weekStart = new Date(today);
@@ -90,20 +126,50 @@ export async function GET(req: NextRequest) {
     weekStart.setHours(0, 0, 0, 0);
 
     const categoryWeek = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: weekStart }, subscriptionId: null } },
-      { $group: { _id: "$category", total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      { $match: { userId, date: { $gte: weekStart }, subscriptionId: null } },
+      {
+        $group: {
+          _id: "$category",
+          total: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
       { $sort: { total: -1 } },
     ]);
 
     const categoryMonth = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: monthStart, $lt: nextMonth }, subscriptionId: null } },
-      { $group: { _id: "$category", total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      {
+        $match: {
+          userId,
+          date: { $gte: monthStart, $lt: nextMonth },
+          subscriptionId: null,
+        },
+      },
+      {
+        $group: {
+          _id: "$category",
+          total: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
       { $sort: { total: -1 } },
     ]);
 
     const categoryYear = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: yearStart, $lt: nextYear }, subscriptionId: null } },
-      { $group: { _id: "$category", total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      {
+        $match: {
+          userId,
+          date: { $gte: yearStart, $lt: nextYear },
+          subscriptionId: null,
+        },
+      },
+      {
+        $group: {
+          _id: "$category",
+          total: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
       { $sort: { total: -1 } },
     ]);
 
@@ -111,7 +177,9 @@ export async function GET(req: NextRequest) {
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
     const dailyTrend = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: thirtyDaysAgo }, subscriptionId: null } },
+      {
+        $match: { userId, date: { $gte: thirtyDaysAgo }, subscriptionId: null },
+      },
       {
         $group: {
           _id: {
@@ -127,17 +195,31 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Top single expense this month - EXCLUDING subscriptions
-    const maxExpense = await ExpenseModel.findOne({ date: { $gte: monthStart, $lt: nextMonth }, subscriptionId: null })
+    const maxExpense = await ExpenseModel.findOne({
+      userId,
+      date: { $gte: monthStart, $lt: nextMonth },
+      subscriptionId: null,
+    })
       .sort({ amount: -1 })
       .limit(1)
       .lean();
 
     // 1. Avg Daily Spending (last 30 days) - EXCLUDING subscriptions
     const avgDailyAgg = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: thirtyDaysAgo, $lt: tomorrow }, subscriptionId: null } },
+      {
+        $match: {
+          userId,
+          date: { $gte: thirtyDaysAgo, $lt: tomorrow },
+          subscriptionId: null,
+        },
+      },
       {
         $group: {
-          _id: { day: { $dayOfMonth: "$date" }, month: { $month: "$date" }, year: { $year: "$date" } },
+          _id: {
+            day: { $dayOfMonth: "$date" },
+            month: { $month: "$date" },
+            year: { $year: "$date" },
+          },
           total: { $sum: "$amount" },
         },
       },
@@ -145,25 +227,17 @@ export async function GET(req: NextRequest) {
     ]);
     const avgDaily = avgDailyAgg[0]?.avg || 0;
 
-    // 2. Late night spending - EXCLUDING subscriptions
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 6);
-    const lateNightAgg = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: sevenDaysAgo }, subscriptionId: null } },
-      {
-        $addFields: {
-          hour: { $hour: { date: "$date", timezone: "Asia/Kolkata" } }
-        }
-      },
-      { $match: { $or: [{ hour: { $gte: 22 } }, { hour: { $lt: 5 } }] } },
-      { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
-    ]);
-
     // Monthly trend (last 12 months) - EXCLUDING subscriptions
     const twelveMonthsAgo = new Date(monthStart);
     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
     const monthlyTrend = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: twelveMonthsAgo }, subscriptionId: null } },
+      {
+        $match: {
+          userId,
+          date: { $gte: twelveMonthsAgo },
+          subscriptionId: null,
+        },
+      },
       {
         $group: {
           _id: { year: { $year: "$date" }, month: { $month: "$date" } },
@@ -176,7 +250,9 @@ export async function GET(req: NextRequest) {
 
     // Weekly pattern (day of week) - EXCLUDING subscriptions
     const weeklyAgg = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: thirtyDaysAgo }, subscriptionId: null } },
+      {
+        $match: { userId, date: { $gte: thirtyDaysAgo }, subscriptionId: null },
+      },
       {
         $group: {
           _id: { $dayOfWeek: "$date" },
@@ -184,15 +260,23 @@ export async function GET(req: NextRequest) {
           count: { $sum: 1 },
         },
       },
-      { $sort: { "_id": 1 } },
+      { $sort: { _id: 1 } },
     ]);
 
     // Weekly trend (last 7 days - date wise) - EXCLUDING subscriptions
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6);
     const weeklyTrend = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: sevenDaysAgo }, subscriptionId: null } },
+      {
+        $match: { userId, date: { $gte: sevenDaysAgo }, subscriptionId: null },
+      },
       {
         $group: {
-          _id: { year: { $year: "$date" }, month: { $month: "$date" }, day: { $dayOfMonth: "$date" } },
+          _id: {
+            year: { $year: "$date" },
+            month: { $month: "$date" },
+            day: { $dayOfMonth: "$date" },
+          },
           total: { $sum: "$amount" },
         },
       },
@@ -203,7 +287,13 @@ export async function GET(req: NextRequest) {
     const fiftyTwoWeeksAgo = new Date(today);
     fiftyTwoWeeksAgo.setDate(today.getDate() - 364);
     const yearlyWeeklyTrend = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: fiftyTwoWeeksAgo }, subscriptionId: null } },
+      {
+        $match: {
+          userId,
+          date: { $gte: fiftyTwoWeeksAgo },
+          subscriptionId: null,
+        },
+      },
       {
         $group: {
           _id: { year: { $year: "$date" }, week: { $week: "$date" } },
@@ -219,14 +309,26 @@ export async function GET(req: NextRequest) {
     const lastMonthEnd = new Date(monthStart);
 
     const lastMonthAgg = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: lastMonthStart, $lt: lastMonthEnd }, subscriptionId: null } },
-      { $group: { _id: null, total: { $sum: "$amount" } } }
+      {
+        $match: {
+          userId,
+          date: { $gte: lastMonthStart, $lt: lastMonthEnd },
+          subscriptionId: null,
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
     ]);
 
     const lastMonthCategories = await ExpenseModel.aggregate([
-      { $match: { date: { $gte: lastMonthStart, $lt: lastMonthEnd }, subscriptionId: null } },
+      {
+        $match: {
+          userId,
+          date: { $gte: lastMonthStart, $lt: lastMonthEnd },
+          subscriptionId: null,
+        },
+      },
       { $group: { _id: "$category", total: { $sum: "$amount" } } },
-      { $sort: { total: -1 } }
+      { $sort: { total: -1 } },
     ]);
 
     return NextResponse.json({
@@ -242,10 +344,16 @@ export async function GET(req: NextRequest) {
         subscriptionTotal: subscriptionsAgg[0]?.total || 0,
         maxExpense: maxExpense || null,
         avgDaily,
-        lateNight: lateNightAgg[0] || { total: 0, count: 0 },
+        topCategoryWeek: categoryWeek[0] || null,
         comparison: {
-          thisMonth: { total: monthlyAgg[0]?.total || 0, categories: categoryMonth },
-          lastMonth: { total: lastMonthAgg[0]?.total || 0, categories: lastMonthCategories }
+          thisMonth: {
+            total: monthlyAgg[0]?.total || 0,
+            categories: categoryMonth,
+          },
+          lastMonth: {
+            total: lastMonthAgg[0]?.total || 0,
+            categories: lastMonthCategories,
+          },
         },
         forecast: (() => {
           const totalDays = new Date(year, month + 1, 0).getDate();
@@ -253,15 +361,15 @@ export async function GET(req: NextRequest) {
           const currentDay = day; // 1-indexed
           const projected = (spent / currentDay) * totalDays;
           const daysRemaining = Math.max(totalDays - currentDay, 1);
-          
+
           return {
             projected,
             totalDays,
             currentDay,
             daysRemaining,
-            isOvershooting: false, // Will be compared with budget on frontend or if we fetch budget here
+            isOvershooting: false,
           };
-        })()
+        })(),
       },
       charts: {
         categories: {
@@ -273,26 +381,37 @@ export async function GET(req: NextRequest) {
         monthlyTrend, // 12 months
         weeklyTrend, // 7 days
         yearlyWeeklyTrend, // 52 weeks
-        weekdayPattern: weeklyAgg, // Monday-Sunday pattern (renamed for clarity)
+        weekdayPattern: weeklyAgg,
       },
     });
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: "Failed to fetch expenses" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch expenses" },
+      { status: 500 },
+    );
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
+    const userId = req.headers.get("x-user-id");
+    if (!userId)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const body = await req.json();
     const { amount, category, description, date, location } = body;
 
     if (!amount || !category || !description) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 },
+      );
     }
 
     const expense = await ExpenseModel.create({
+      userId,
       amount: parseFloat(amount),
       category,
       description,
@@ -303,18 +422,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(expense, { status: 201 });
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: "Failed to create expense" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to create expense" },
+      { status: 500 },
+    );
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
     await connectDB();
+    const userId = req.headers.get("x-user-id");
+    if (!userId)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-    await ExpenseModel.findByIdAndDelete(id);
+    const deleted = await ExpenseModel.findOneAndDelete({ _id: id, userId });
+    if (!deleted)
+      return NextResponse.json(
+        { error: "Expense not found or unauthorized" },
+        { status: 404 },
+      );
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: "Failed to delete" }, { status: 500 });

@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
-import { BudgetModel } from "@/models/Budget";
+import { UserModel } from "@/models/User";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const userId = req.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     await connectDB();
-    let budget = await BudgetModel.findOne().sort({ updatedAt: -1 }).lean();
-    if (!budget) {
-      budget = await BudgetModel.create({ dailyBudget: 100 });
-    }
-    return NextResponse.json(budget);
+    const user = await UserModel.findById(userId).lean();
+    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+    return NextResponse.json({ dailyBudget: user.dailyBudget, monthlyBudget: user.monthlyBudget, yearlyBudget: user.yearlyBudget });
   } catch (error) {
     return NextResponse.json({ error: "Failed to fetch budget" }, { status: 500 });
   }
@@ -17,21 +19,28 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = req.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     await connectDB();
     const { dailyBudget } = await req.json();
     if (!dailyBudget || dailyBudget <= 0) {
       return NextResponse.json({ error: "Invalid budget" }, { status: 400 });
     }
 
-    let budget = await BudgetModel.findOne();
-    if (budget) {
-      budget.dailyBudget = dailyBudget;
-      await budget.save();
-    } else {
-      budget = await BudgetModel.create({ dailyBudget });
-    }
+    const user = await UserModel.findByIdAndUpdate(
+      userId,
+      { 
+        dailyBudget,
+        monthlyBudget: dailyBudget * 30, // Auto-update for simplicity or keep separate
+        yearlyBudget: dailyBudget * 365
+      },
+      { new: true }
+    );
 
-    return NextResponse.json(budget);
+    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+    return NextResponse.json({ dailyBudget: user.dailyBudget });
   } catch (error) {
     return NextResponse.json({ error: "Failed to update budget" }, { status: 500 });
   }

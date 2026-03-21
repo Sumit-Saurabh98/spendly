@@ -5,14 +5,18 @@ import { ExpenseModel } from "@/models/Expense";
 
 export async function GET(req: NextRequest) {
   try {
+    const userId = req.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     await connectDB();
-    const subscriptions = await SubscriptionModel.find({ isActive: true }).sort({ nextBillingDate: 1 });
+    const subscriptions = await SubscriptionModel.find({ userId, isActive: true }).sort({ nextBillingDate: 1 });
 
     // Detection Logic: Scan last 90 days for patterns
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
     const expenses = await ExpenseModel.find({
+      userId,
       date: { $gte: ninetyDaysAgo }
     });
 
@@ -61,11 +65,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = req.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     await connectDB();
     const body = await req.json();
     const { name, amount, category, frequency, nextBillingDate, isAutoDetected } = body;
 
     const subscription = await SubscriptionModel.create({
+      userId,
       name,
       amount,
       category,
@@ -74,9 +82,9 @@ export async function POST(req: NextRequest) {
       isAutoDetected: !!isAutoDetected
     });
 
-    // Link existing expenses to this subscription
+    // Link existing expenses to this subscription (for this user only)
     await ExpenseModel.updateMany(
-      { description: { $regex: new RegExp(`^${name}$`, "i") } },
+      { userId, description: { $regex: new RegExp(`^${name}$`, "i") } },
       { $set: { subscriptionId: subscription._id } }
     );
 
@@ -89,12 +97,17 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const userId = req.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     await connectDB();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    await SubscriptionModel.findByIdAndDelete(id);
+    const deleted = await SubscriptionModel.findOneAndDelete({ _id: id, userId });
+    if (!deleted) return NextResponse.json({ error: "Subscription not found or unauthorized" }, { status: 404 });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: "Failed to delete" }, { status: 500 });

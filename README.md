@@ -1,73 +1,53 @@
-# 💸 Spendly — Daily Expense Tracker
+# 💸 Spendly — Smart Financial Tracker
 
-A full-stack Next.js expense tracker with MongoDB backend, real-time budget tracking, and interactive charts.
+A full-stack Next.js financial management system with MongoDB, real-time tracking, AI-powered insights, and interactive analytics.
 
 ## Tech Stack
 - **Next.js 14** (App Router)
 - **TypeScript**
 - **Tailwind CSS**
 - **MongoDB + Mongoose**
-- **Recharts** (interactive charts)
-- **Lucide React** (icons)
+- **OpenAI GPT-4o** (AI Assistant)
+- **Recharts** (Interactive Analytics)
+- **Lucide React** (Icons)
 
 ---
 
 ## Features
 
-- ✅ Set a **daily budget** → auto-calculates monthly (×31) and yearly (×31×12)
-- ✅ **Real-time remaining amounts** for day / month / year
-- ✅ **Progress bars** that turn yellow at 80% and red at 100%
-- ✅ **Alerts** when budget limits are exceeded
-- ✅ **Add expenses** with category, description, date
-- ✅ **Live preview** of post-expense daily total before submitting
-- ✅ **Interactive charts**: daily trend, monthly trend, category pie + bar
-- ✅ **Expense logs** filterable by today / this month / this year / all time
-- ✅ **Delete** individual expenses
-- ✅ **All-time** data stored in MongoDB (lifetime tracking)
-- ✅ No login / no auth — just open and use
+- ✅ **Secret Key Access**: Simple, secure access via a system-wide secret key.
+- ✅ **AI Assistant**: Specialized GPT-4o assistant for financial insights and queries.
+- ✅ **Dynamic Budgeting**: Set daily budgets with auto-calculated monthly and yearly limits.
+- ✅ **Expense Tracking**: Log spends with categories, descriptions, and optional location data.
+- ✅ **Recurring Payments**: Manage and auto-detect subscriptions.
+- ✅ **Savings Goals**: Track progress towards specific financial targets.
+- ✅ **Interactive Charts**: Comprehensive spending trends (Daily, Weekly, Monthly, Yearly).
+- ✅ **Smart Alerts**: Visual warnings for daily, monthly, and yearly budget breaches.
+- ✅ **Email Notifications**: Breach alerts sent via Nodemailer/Gmail.
+- ✅ **Geographic Insights**: Map-based visualization of your spending locations.
 
 ---
 
 ## Setup Instructions
 
 ### 1. Install dependencies
-
 ```bash
 npm install
 ```
 
-### 2. Set up MongoDB
-
-**Option A – Local MongoDB:**
-```bash
-# Make sure MongoDB is running locally
-# Default URI: mongodb://localhost:27017/expense-tracker
+### 2. Configure environment variables
+Create a `.env` file in the root directory:
+```env
+MONGODB_URI=your_mongodb_connection_string
+OPENAI_API_KEY=your_openai_api_key
+GMAIL_USER=your_gmail_for_notifications
+GMAIL_APP_PASSWORD=your_gmail_app_password
 ```
 
-**Option B – MongoDB Atlas (cloud, free tier):**
-1. Go to [mongodb.com/atlas](https://www.mongodb.com/atlas)
-2. Create a free cluster
-3. Get your connection string
-
-### 3. Configure environment variables
-
-```bash
-cp .env.local.example .env.local
-```
-
-Edit `.env.local`:
-```
-MONGODB_URI=mongodb://localhost:27017/expense-tracker
-# or for Atlas:
-# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/expense-tracker
-```
-
-### 4. Run the development server
-
+### 3. Run the development server
 ```bash
 npm run dev
 ```
-
 Open [http://localhost:3000](http://localhost:3000)
 
 ---
@@ -78,47 +58,37 @@ Open [http://localhost:3000](http://localhost:3000)
 expense-tracker/
 ├── app/
 │   ├── api/
-│   │   ├── expenses/route.ts   # GET, POST, DELETE expenses
-│   │   └── budget/route.ts     # GET, POST budget
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx
+│   │   ├── expenses/route.ts      # Main expense data & summaries
+│   │   ├── chat/route.ts          # AI Assistant logic
+│   │   ├── goals/route.ts         # Savings goals management
+│   │   ├── subscriptions/route.ts # Recurring payments
+│   │   ├── budget/route.ts        # Global budget settings
+│   │   └── auth/verify/route.ts   # Secret key verification
 ├── components/
-│   └── Dashboard.tsx           # Main UI (all tabs)
+│   ├── Dashboard.tsx              # Main Application UI
+│   └── AIChat.tsx                 # AI Assistant Interface
 ├── lib/
-│   └── mongodb.ts              # DB connection
-├── models/
-│   ├── Expense.ts              # Expense schema
-│   └── Budget.ts               # Budget schema
-├── types/
-│   └── index.ts                # TypeScript types
-└── .env.local.example
+│   ├── mongodb.ts                 # Database connection
+│   ├── cron.ts                    # Daily reminder service
+│   └── mail.ts                    # Email notification service
+├── models/                        # Mongoose Schemas
+└── types/                         # TypeScript Definitions
 ```
 
 ---
 
-## Tabs
+## API Documentation
 
-| Tab | Description |
-|-----|-------------|
-| **Overview** | Budget cards, progress bars, 30-day mini chart |
-| **Add Expense** | Form with live budget preview |
-| **Analytics** | Category pie, bar chart, daily/monthly trends |
-| **Logs** | Full expense history with filters and delete |
+### Main Endpoints
+- **GET** `/api/expenses`: Fetches all logs, summaries, and chart data.
+- **POST** `/api/expenses`: Add a new transaction.
+- **GET/POST** `/api/chat`: AI Assistant interaction and history.
+- **GET/POST/PATCH** `/api/goals`: Manage savings targets.
+- **GET/POST** `/api/subscriptions`: Manage recurring payments.
+- **GET/POST** `/api/budget`: Manage system-wide budget limits.
+- **POST** `/api/auth/verify`: Verify access with secret key.
 
 ---
 
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/expenses` | Get expenses + summary + chart data |
-| POST | `/api/expenses` | Add new expense |
-| DELETE | `/api/expenses?id=xxx` | Delete expense |
-| GET | `/api/budget` | Get current budget |
-| POST | `/api/budget` | Update daily budget |
-
-### Query params for GET `/api/expenses`:
-- `period`: `day` | `month` | `year` | (omit for all)
-- `page`: page number (default 1)
-- `limit`: items per page (default 50)
+## License
+MIT

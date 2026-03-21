@@ -16,7 +16,7 @@ const SUGGESTIONS = [
   "Show me my recent food expenses",
 ];
 
-export default function AIChat() {
+export default function AIChat({ userId }: { userId: string }) {
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", content: "Hello! I'm your AI Expense Assistant. Ask me anything about your spending, budgets, or transactions!", timestamp: new Date().toISOString() }
   ]);
@@ -26,8 +26,11 @@ export default function AIChat() {
 
   useEffect(() => {
     const loadHistory = async () => {
+      if (!userId) return;
       try {
-        const res = await fetch("/api/chat");
+        const res = await fetch("/api/chat", {
+          headers: { "x-user-id": userId }
+        });
         const data = await res.json();
         if (data.messages && data.messages.length > 0) {
           setMessages(data.messages);
@@ -37,7 +40,7 @@ export default function AIChat() {
       }
     };
     loadHistory();
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -46,7 +49,7 @@ export default function AIChat() {
   }, [messages, loading]);
 
   const handleSend = async (text: string = input) => {
-    if (!text.trim() || loading) return;
+    if (!text.trim() || loading || !userId) return;
 
     const userMsg: Message = { role: "user", content: text, timestamp: new Date().toISOString() };
     const newMessages = [...messages, userMsg];
@@ -57,7 +60,10 @@ export default function AIChat() {
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-user-id": userId 
+        },
         body: JSON.stringify({ messages: newMessages }),
       });
 

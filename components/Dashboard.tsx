@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import {
   LayoutDashboard, PlusCircle, BarChart3, List, AlertTriangle,
   TrendingUp, TrendingDown, Wallet, Calendar, CalendarDays,
-  CalendarRange, Trash2, RefreshCw, Settings, IndianRupee, MessageSquare, Sparkles,
-  Lock, ShieldCheck, Key, Map, Locate, X, CheckCircle2
+  CalendarRange, Trash2, RefreshCw, Settings, IndianRupee, Sparkles,
+  Lock, Key, Map, Locate, X, Mail,
+  LogOutIcon
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -152,7 +153,9 @@ const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct"
 
 export default function Dashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [passkey, setPasskey] = useState("");
+  const [authStep, setAuthStep] = useState<"email" | "otp">("email");
+  const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
   const [authError, setAuthError] = useState("");
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
@@ -163,7 +166,7 @@ export default function Dashboard() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [summary, setSummary] = useState({ 
     daily: 0, monthly: 0, yearly: 0, allTime: 0, maxExpense: null as any, avgDaily: 0, 
-    lateNight: { total: 0, count: 0 },
+    topCategoryWeek: null as any,
     comparison: { thisMonth: { total: 0, categories: [] }, lastMonth: { total: 0, categories: [] } },
     forecast: { projected: 0, totalDays: 30, currentDay: 1, daysRemaining: 29 },
     subscriptionTotal: 0
@@ -204,8 +207,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     const checkAuth = () => {
-      const expiry = localStorage.getItem("expense_auth_expiry");
-      if (expiry && parseInt(expiry) > Date.now()) {
+      const userId = localStorage.getItem("expense_user_id");
+      if (userId) {
         setIsAuthenticated(true);
       } else {
         setIsAuthenticated(false);
@@ -235,31 +238,63 @@ export default function Dashboard() {
     };
   }, [summary.daily, isAuthenticated]);
 
-  const handleVerify = async (e: React.FormEvent) => {
+  const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!passkey) return;
+    if (!email) return;
     setIsAuthenticating(true);
     setAuthError("");
     try {
-      const res = await fetch("/api/auth/verify", {
+      const res = await fetch("/api/auth/otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ secret: passkey }),
+        body: JSON.stringify({ email }),
       });
       const data = await res.json();
       if (data.success) {
-        const expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
-        localStorage.setItem("expense_auth_expiry", expiry.toString());
-        setIsAuthenticated(true);
-        setPasskey("");
+        setAuthStep("otp");
       } else {
-        setAuthError(data.error || "Invalid Secret Key");
+        setAuthError(data.error || "Failed to send OTP");
       }
     } catch (err) {
       setAuthError("Server Error. Try again.");
     } finally {
       setIsAuthenticating(false);
     }
+  };
+
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otp) return;
+    setIsAuthenticating(true);
+    setAuthError("");
+    try {
+      const res = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, code: otp }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem("expense_user_id", data.user._id);
+        localStorage.setItem("expense_user_email", data.user.email);
+        setIsAuthenticated(true);
+      } else {
+        setAuthError(data.error || "Invalid OTP");
+      }
+    } catch (err) {
+      setAuthError("Server Error. Try again.");
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("expense_user_id");
+    localStorage.removeItem("expense_user_email");
+    setIsAuthenticated(false);
+    setAuthStep("email");
+    setEmail("");
+    setOtp("");
   };
 
   const handleGetLocation = () => {
@@ -290,12 +325,15 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    const userId = localStorage.getItem("expense_user_id");
+    if (!userId) return;
+
     try {
       const [budgetRes, expensesRes, subsRes, goalsRes] = await Promise.all([
-        fetch("/api/budget"),
-        fetch(`/api/expenses?period=${logPeriod}&limit=100`),
-        fetch("/api/subscriptions"),
-        fetch("/api/goals"),
+        fetch("/api/budget", { headers: { "x-user-id": userId } }),
+        fetch(`/api/expenses?period=${logPeriod}&limit=100`, { headers: { "x-user-id": userId } }),
+        fetch("/api/subscriptions", { headers: { "x-user-id": userId } }),
+        fetch("/api/goals", { headers: { "x-user-id": userId } }),
       ]);
       const budgetData = await budgetRes.json();
       const expensesData = await expensesRes.json();
@@ -338,6 +376,9 @@ export default function Dashboard() {
     e.preventDefault();
     if (!form.amount || !form.description) return;
 
+    const userId = localStorage.getItem("expense_user_id");
+    if (!userId) return;
+
     // Budget Breach Alert (20% of monthly budget)
     const monthlyBudget = dailyBudget * 31;
     const amountNum = parseFloat(form.amount);
@@ -346,7 +387,7 @@ export default function Dashboard() {
       // Send Email Notification
       fetch("/api/notify/breach", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-user-id": userId },
         body: JSON.stringify({ amount: amountNum, monthBudget: monthlyBudget, description: form.description }),
       }).catch(err => console.error("Email notify failed", err));
 
@@ -354,7 +395,7 @@ export default function Dashboard() {
       try {
         const res = await fetch("/api/expenses", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-user-id": userId },
           body: JSON.stringify({ ...form, amount: parseFloat(form.amount) }),
         });
         if (res.ok) {
@@ -392,8 +433,13 @@ export default function Dashboard() {
         title: `Delete ${type.charAt(0).toUpperCase() + type.slice(1)}?`,
         message: `Are you sure you want to remove this ${type}? This action cannot be undone.`,
         onConfirm: async () => {
+          const userId = localStorage.getItem("expense_user_id");
+          if (!userId) return;
           const endpoints = { expense: "/api/expenses", goal: "/api/goals", subscription: "/api/subscriptions" };
-          await fetch(`${endpoints[type]}?id=${id}`, { method: "DELETE" });
+          await fetch(`${endpoints[type]}?id=${id}`, { 
+            method: "DELETE",
+            headers: { "x-user-id": userId }
+          });
           setModal({ type: null, data: null });
           fetchData();
         }
@@ -404,9 +450,12 @@ export default function Dashboard() {
   const handleBudgetSave = async () => {
     const val = parseFloat(newBudget);
     if (!val || val <= 0) return;
+    const userId = localStorage.getItem("expense_user_id");
+    if (!userId) return;
+
     await fetch("/api/budget", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-user-id": userId },
       body: JSON.stringify({ dailyBudget: val }),
     });
     setShowBudgetEdit(false);
@@ -493,34 +542,74 @@ export default function Dashboard() {
         <div className="animate-slide-up" style={{ maxWidth: 400, width: "100%" }}>
           <div className="card" style={{ padding: 40, textAlign: "center", boxShadow: "0 20px 50px rgba(0,0,0,0.3)", border: "1px solid var(--border)" }}>
             <div style={{ width: 64, height: 64, borderRadius: 20, background: "rgba(124, 92, 252, 0.1)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px" }}>
-              <Lock size={32} />
+              {authStep === "email" ? <Wallet size={32} /> : <Lock size={32} />}
             </div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 8px", color: "var(--text)" }}>Access Protected</h1>
-            <p style={{ fontSize: 14, color: "var(--text2)", margin: "0 0 32px" }}>Enter your secret key to access the tracker</p>
+            <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 8px", color: "var(--text)" }}>
+              {authStep === "email" ? "Welcome to Spendly" : "Check your email"}
+            </h1>
+            <p style={{ fontSize: 14, color: "var(--text2)", margin: "0 0 32px" }}>
+              {authStep === "email" 
+                ? "Enter your email to sign in or create an account" 
+                : `We've sent a 6-digit code to ${email}`}
+            </p>
             
-            <form onSubmit={handleVerify}>
+            <form onSubmit={authStep === "email" ? handleSendOTP : handleVerifyOTP}>
               <div style={{ position: "relative", marginBottom: 20 }}>
-                <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--text2)" }}>
-                  <Key size={18} />
-                </div>
-                <input
-                  type="password"
-                  value={passkey}
-                  onChange={(e) => setPasskey(e.target.value)}
-                  placeholder="Enter secret key..."
-                  autoFocus
-                  style={{ 
-                    width: "100%", 
-                    padding: "14px 14px 14px 44px", 
-                    borderRadius: 12, 
-                    background: "var(--bg3)", 
-                    border: authError ? "1px solid var(--red)" : "1px solid var(--border)", 
-                    color: "var(--text)",
-                    fontSize: 15,
-                    outline: "none",
-                    transition: "all 0.2s"
-                  }}
-                />
+                {authStep === "email" ? (
+                  <>
+                    <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--text2)" }}>
+                      <Mail size={18} />
+                    </div>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      autoFocus
+                      required
+                      style={{ 
+                        width: "100%", 
+                        padding: "14px 14px 14px 44px", 
+                        borderRadius: 12, 
+                        background: "var(--bg3)", 
+                        border: authError ? "1px solid var(--red)" : "1px solid var(--border)", 
+                        color: "var(--text)",
+                        fontSize: 15,
+                        outline: "none",
+                        transition: "all 0.2s"
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--text2)" }}>
+                      <Key size={18} />
+                    </div>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                      placeholder="000000"
+                      autoFocus
+                      required
+                      style={{ 
+                        width: "100%", 
+                        padding: "14px 14px 14px 44px", 
+                        borderRadius: 12, 
+                        background: "var(--bg3)", 
+                        border: authError ? "1px solid var(--red)" : "1px solid var(--border)", 
+                        color: "var(--text)",
+                        fontSize: 24,
+                        letterSpacing: "4px",
+                        textAlign: "center",
+                        fontWeight: 800,
+                        outline: "none",
+                        transition: "all 0.2s"
+                      }}
+                    />
+                  </>
+                )}
               </div>
               
               {authError && (
@@ -529,17 +618,29 @@ export default function Dashboard() {
               
               <button 
                 type="submit" 
-                disabled={isAuthenticating || !passkey}
+                disabled={isAuthenticating}
                 className="btn-primary" 
                 style={{ width: "100%", padding: 14, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
               >
-                {isAuthenticating ? <RefreshCw className="animate-spin" size={20} /> : <ShieldCheck size={20} />}
-                {isAuthenticating ? "Verifying..." : "Unlock Dashboard"}
+                {isAuthenticating ? <RefreshCw className="animate-spin" size={20} /> : <Sparkles size={20} />}
+                {isAuthenticating 
+                  ? (authStep === "email" ? "Sending..." : "Verifying...") 
+                  : (authStep === "email" ? "Get Started" : "Verify Code")}
               </button>
+
+              {authStep === "otp" && (
+                <button 
+                  type="button"
+                  onClick={() => setAuthStep("email")}
+                  style={{ background: "none", border: "none", color: "var(--accent)", fontSize: 13, fontWeight: 600, marginTop: 16, cursor: "pointer" }}
+                >
+                  Change Email
+                </button>
+              )}
             </form>
           </div>
           <p style={{ textAlign: "center", marginTop: 24, fontSize: 12, color: "var(--text2)", opacity: 0.5 }}>
-            Session will expire automatically after 10 minutes of inactivity.
+            By signing in, you agree to our terms and privacy policy.
           </p>
         </div>
       </div>
@@ -600,6 +701,9 @@ export default function Dashboard() {
               <span>Budget: {fmt(dailyBudget)}/day</span>
             </button>
           )}
+          <button onClick={handleLogout} style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px", color: "var(--red)", cursor: "pointer", display: "flex" }} title="Logout">
+            <LogOutIcon size={16} />
+          </button>
           <button onClick={fetchData} style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px", color: "var(--text2)", cursor: "pointer", display: "flex" }}>
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           </button>
@@ -681,7 +785,7 @@ export default function Dashboard() {
             </div>
             
             {/* Smart Insights Section */}
-            {( (summary.daily > summary.avgDaily * 1.5 && summary.avgDaily > 0) || (summary.lateNight?.total > 0) || (summary.daily < summary.avgDaily * 0.7 && summary.daily > 0) ) && (
+            {( (summary.daily > summary.avgDaily * 1.5 && summary.avgDaily > 0) || (summary.topCategoryWeek) || (summary.daily < summary.avgDaily * 0.7 && summary.daily > 0) ) && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 20 }}>
                 {summary.daily > summary.avgDaily * 1.5 && summary.avgDaily > 0 && (
                   <div className="card" style={{ padding: 16, borderLeft: "4px solid var(--accent)", background: "rgba(124, 92, 252, 0.05)" }}>
@@ -699,16 +803,16 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {summary.lateNight?.total > 0 && (
+                {summary.topCategoryWeek && (
                   <div className="card" style={{ padding: 16, borderLeft: "4px solid #f72585", background: "rgba(247, 37, 133, 0.05)" }}>
                     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                       <div style={{ padding: 8, borderRadius: 8, background: "rgba(247, 37, 133, 0.1)", color: "#f72585" }}>
-                        <CalendarDays size={18} />
+                        <Sparkles size={18} />
                       </div>
                       <div>
-                        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Late-Night Habit</h4>
+                        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Weekly Top Spent</h4>
                         <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text2)" }}>
-                          You've spent {fmt(summary.lateNight.total)} late at night this week.
+                          You've spent the most on <strong>{summary.topCategoryWeek._id}</strong> ({fmt(summary.topCategoryWeek.total)}) this week.
                         </p>
                       </div>
                     </div>
@@ -1178,9 +1282,11 @@ export default function Dashboard() {
                           className="btn-primary" 
                           style={{ width: "100%", marginTop: 12, padding: "8px", fontSize: 12 }}
                           onClick={async () => {
+                            const userId = localStorage.getItem("expense_user_id");
+                            if (!userId) return;
                             await fetch("/api/subscriptions", {
                               method: "POST",
-                              headers: { "Content-Type": "application/json" },
+                              headers: { "Content-Type": "application/json", "x-user-id": userId },
                               body: JSON.stringify({ ...ds, isAutoDetected: true })
                             });
                             fetchData();
@@ -1287,10 +1393,12 @@ export default function Dashboard() {
                 <h3 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 700 }}>🏆 Set New Goal</h3>
                 <form onSubmit={async (e: any) => {
                   e.preventDefault();
+                  const userId = localStorage.getItem("expense_user_id");
+                  if (!userId) return;
                   const target = e.target;
                   await fetch("/api/goals", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { "Content-Type": "application/json", "x-user-id": userId },
                     body: JSON.stringify({
                       name: target.name.value,
                       targetAmount: parseFloat(target.amount.value),
@@ -1467,7 +1575,7 @@ export default function Dashboard() {
         )}
 
         {/* AI CHAT TAB */}
-        {tab === "chat" && <AIChat />}
+        {tab === "chat" && <AIChat userId={localStorage.getItem("expense_user_id") || ""} />}
       </div>
 
       <Modal 
@@ -1495,11 +1603,13 @@ export default function Dashboard() {
       >
         <form onSubmit={async (e: any) => {
           e.preventDefault();
+          const userId = localStorage.getItem("expense_user_id");
+          if (!userId) return;
           const amt = parseFloat(e.target.amount.value);
           if (amt > 0) {
             await fetch("/api/goals", {
               method: "PATCH",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "x-user-id": userId },
               body: JSON.stringify({ id: modal.data.id, currentAmount: modal.data.current + amt })
             });
             setModal({ type: null, data: null });

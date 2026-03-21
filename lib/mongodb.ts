@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
+import dotenv from "dotenv";
+dotenv.config();
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/expense-tracker";
+const MONGODB_URI = process.env.MONGODB_URI as string;
 
 interface MongooseCache {
   conn: typeof mongoose | null;

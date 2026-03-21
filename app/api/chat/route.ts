@@ -2,7 +2,6 @@ import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { ExpenseModel } from "@/models/Expense";
-import { BudgetModel } from "@/models/Budget";
 import { SubscriptionModel } from "@/models/Subscription";
 import { GoalModel } from "@/models/Goal";
 
@@ -11,11 +10,15 @@ const openai = new OpenAI({
 });
 
 import { ChatMessageModel } from "@/models/ChatMessage";
+import { UserModel } from "@/models/User";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const userId = req.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     await connectDB();
-    const messages = await ChatMessageModel.find().sort({ timestamp: 1 }).limit(100);
+    const messages = await ChatMessageModel.find({ userId }).sort({ timestamp: 1 }).limit(100);
     return NextResponse.json({ messages });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -24,6 +27,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const userId = req.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const { messages } = await req.json();
 
     if (!process.env.OPENAI_API_KEY) {
@@ -38,7 +44,7 @@ export async function POST(req: Request) {
     // Save the new user message
     const lastMessage = messages[messages.length - 1];
     if (lastMessage && lastMessage.role === "user") {
-      await ChatMessageModel.create({ role: "user", content: lastMessage.content });
+      await ChatMessageModel.create({ userId, role: "user", content: lastMessage.content });
     }
 
     // Get current time in IST
@@ -53,21 +59,21 @@ export async function POST(req: Request) {
       messages: [
         {
           role: "system",
-          content: `You are a helpful and intelligent Expense Tracker Assistant. 
+          content: `You are a helpful and intelligent Spendly Expense Tracker Assistant. 
           Current Local Time (IST): ${nowIST}.
-          Your goal is to help users manage their finances.
+          Your goal is strictly to help users manage their finances and answer questions ONLY about their profile, expenses, savings goals, and subscriptions.
           
           CAPABILITIES:
           1. You have access to the user's Expenses, Savings Goals, and Recurring Subscriptions.
-          2. Expenses often include Location data (Latitude, Longitude, and Area Name). Use this to answer geographic questions like "Where do I spend the most?".
-          3. You can see the progress of various Savings Goals (e.g., "New Laptop").
+          2. Expenses often include Location data. Use this to answer geographic questions like "Where do I spend the most?".
+          3. You can see the progress of various Savings Goals.
           
           CRITICAL RULES:
-          1. ALWAYS use Indian Rupees (₹) for ALL currency values. NEVER use dollars ($) or other currencies.
-          2. Use tools to query the database for accurate, real-time information.
-          3. If the user asks about "today", "this month", etc., use the tools to find data relative to ${nowIST}.
-          4. For location-based queries, analyze the 'location' field in expense records.
-          5. Be concise, professional, and insightful.`,
+          1. ONLY answer questions related to the user's financial profile, expenses, budget, goals, or subscriptions.
+          2. IF A USER ASKS ABOUT ANYTHING ELSE (e.g., general knowledge, coding, science, history), YOU MUST REFUSE professionally.
+          3. Generic Refusal: "I am here to help you about your profile and financial data. I cannot answer questions on other topics."
+          4. ALWAYS use Indian Rupees (₹) for ALL currency values.
+          5. Be concise and maintain a small token footprint.`,
         },
         ...messages,
       ],
@@ -111,6 +117,7 @@ export async function POST(req: Request) {
           },
         },
       ],
+      max_tokens: 300,
     });
 
     const message = response.choices[0].message;
@@ -141,18 +148,18 @@ export async function POST(req: Request) {
           const monthStart = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
           const yearStart = new Date(`${year}-01-01T00:00:00+05:30`);
 
-          const [budget, daily, monthly, yearly, subs] = await Promise.all([
-            BudgetModel.findOne(),
-            ExpenseModel.aggregate([{ $match: { date: { $gte: today }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { date: { $gte: monthStart }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { date: { $gte: yearStart }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            SubscriptionModel.find({ isActive: true })
+          const [user, daily, monthly, yearly, subs] = await Promise.all([
+            UserModel.findById(userId),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: today }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: monthStart }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: yearStart }, subscriptionId: null } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            SubscriptionModel.find({ userId, isActive: true })
           ]);
 
-          const subTotal = subs.reduce((sum, s) => sum + s.amount, 0);
+          const subTotal = subs.reduce((sum: number, s: any) => sum + s.amount, 0);
 
           result = JSON.stringify({
-            budget: budget?.dailyBudget || 100,
+            budget: user?.dailyBudget || 100,
             daily: daily[0]?.total || 0,
             monthly: monthly[0]?.total || 0,
             yearly: yearly[0]?.total || 0,
@@ -161,21 +168,24 @@ export async function POST(req: Request) {
           });
         } else if (tc.function.name === "search_expenses") {
           const args = JSON.parse(tc.function.arguments);
-          const query = args.query ? { 
-            $or: [
-              { category: { $regex: args.query, $options: "i" } },
-              { description: { $regex: args.query, $options: "i" } },
-              { "location.name": { $regex: args.query, $options: "i" } }
-            ]
-          } : {};
+          const query = { 
+            userId,
+            ...(args.query ? { 
+              $or: [
+                { category: { $regex: args.query, $options: "i" } },
+                { description: { $regex: args.query, $options: "i" } },
+                { "location.name": { $regex: args.query, $options: "i" } }
+              ]
+            } : {})
+          };
           
           const expenses = await ExpenseModel.find(query).sort({ date: -1 }).limit(args.limit || 10).lean();
           result = JSON.stringify(expenses);
         } else if (tc.function.name === "get_subscriptions") {
-          const subs = await SubscriptionModel.find().lean();
+          const subs = await SubscriptionModel.find({ userId }).lean();
           result = JSON.stringify(subs);
         } else if (tc.function.name === "get_goals") {
-          const goals = await GoalModel.find().lean();
+          const goals = await GoalModel.find({ userId }).lean();
           result = JSON.stringify(goals);
         }
 
@@ -191,19 +201,20 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: "You are an AI assistant. Analyze the tool results and answer the user question based on them. ALWAYS use ₹ and INR.",
+            content: "You are a Spendly AI assistant. Analyze the tool results and answer the user question based on them. ONLY answer questions related to the user's financial profile and data. For all other topics, provide a generic refusal. ALWAYS use ₹ and INR.",
           },
           ...updatedMessages
         ],
+        max_tokens: 400,
       });
 
       const aiContent = secondaryResponse.choices[0].message.content || "";
-      await ChatMessageModel.create({ role: "assistant", content: aiContent });
+      await ChatMessageModel.create({ userId, role: "assistant", content: aiContent });
       return NextResponse.json({ message: aiContent });
     }
 
     const aiContent = message.content || "";
-    await ChatMessageModel.create({ role: "assistant", content: aiContent });
+    await ChatMessageModel.create({ userId, role: "assistant", content: aiContent });
     return NextResponse.json({ message: aiContent });
   } catch (error: any) {
     console.error("AI Error:", error);
