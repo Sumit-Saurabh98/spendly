@@ -5,6 +5,7 @@ export interface IExpense extends Document {
   amount: number;
   category: string;
   description: string;
+  type: "daily" | "incidental";
   date: Date;
   location?: {
     latitude: number;
@@ -21,6 +22,7 @@ const ExpenseSchema = new Schema<IExpense>(
     amount: { type: Number, required: true, min: 0 },
     category: { type: String, required: true },
     description: { type: String, required: true },
+    type: { type: String, enum: ["daily", "incidental"], default: "daily" },
     date: { type: Date, required: true, default: Date.now },
     location: {
       latitude: { type: Number },

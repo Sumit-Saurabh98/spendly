@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import { ExpenseModel } from "@/models/Expense";
+import { UserModel } from "@/models/User";
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,38 +15,62 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "50");
 
-    // Use Asia/Kolkata timezone for date calculations
+    const userTz = req.headers.get("x-timezone") || "UTC";
     const now = new Date();
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Kolkata",
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-    });
-    const parts = formatter.formatToParts(now);
-    const getPart = (type: string) =>
-      parseInt(parts.find((p) => p.type === type)?.value || "0");
+    
+    // Helper to get formatted parts in user timezone
+    const getParts = (date: Date) => {
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: userTz,
+        year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "numeric", second: "numeric",
+        hour12: false
+      });
+      const p = formatter.formatToParts(date);
+      const find = (type: string) => p.find(pt => pt.type === type)?.value;
+      return {
+        year: find("year"),
+        month: find("month")?.padStart(2, "0"),
+        day: find("day")?.padStart(2, "0")
+      };
+    };
 
-    const year = getPart("year");
-    const month = getPart("month") - 1; // 0-indexed
-    const day = getPart("day");
+    const p = getParts(now);
+    
+    // Create UTC objects representing the start of local periods
+    // Note: Due to how Date works without TZ, we might need a better way if we want true local start.
+    // However, for consistency with the existing logic, we can construct the date string.
+    // To be truly accurate with the offset:
+    const getOffset = (date: Date, tz: string) => {
+      const s = date.toLocaleString('en-US', { timeZone: tz, timeZoneName: 'shortOffset' });
+      const m = s.match(/GMT([+-]\d+):?(\d+)?/);
+      if (!m) return "+00:00";
+      const sign = m[1].startsWith('-') ? '-' : '+';
+      const hours = m[1].replace(/[+-]/, '').padStart(2, '0');
+      const mins = (m[2] || "00").padStart(2, '0');
+      return `${sign}${hours}:${mins}`;
+    };
+    
+    const offset = getOffset(now, userTz);
+    
+    const todayLocal = new Date(`${p.year}-${p.month}-${p.day}T00:00:00${offset}`);
+    const tomorrowLocal = new Date(todayLocal);
+    tomorrowLocal.setDate(todayLocal.getDate() + 1);
 
-    // Start of the current day in Kolkata (in UTC)
-    const today = new Date(
-      `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}T00:00:00+05:30`,
-    );
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
+    const monthStartLocal = new Date(`${p.year}-${p.month}-01T00:00:00${offset}`);
+    const nextMonthLocal = new Date(monthStartLocal);
+    nextMonthLocal.setMonth(nextMonthLocal.getMonth() + 1);
 
-    const monthStart = new Date(
-      `${year}-${String(month + 1).padStart(2, "0")}-01T00:00:00+05:30`,
-    );
-    const nextMonth = new Date(monthStart);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    const yearStartLocal = new Date(`${p.year}-01-01T00:00:00${offset}`);
+    const nextYearLocal = new Date(yearStartLocal);
+    nextYearLocal.setFullYear(nextYearLocal.getFullYear() + 1);
 
-    const yearStart = new Date(`${year}-01-01T00:00:00+05:30`);
-    const nextYear = new Date(yearStart);
-    nextYear.setFullYear(nextYear.getFullYear() + 1);
+    const today = todayLocal;
+    const tomorrow = tomorrowLocal;
+    const monthStart = monthStartLocal;
+    const nextMonth = nextMonthLocal;
+    const yearStart = yearStartLocal;
+    const nextYear = nextYearLocal;
 
     let dateFilter: any = {};
 
@@ -71,8 +96,11 @@ export async function GET(req: NextRequest) {
       ExpenseModel.countDocuments(query),
     ]);
 
+    const user = await UserModel.findOne({ _id: userId }) || { dailyBudget: 100, monthlyIncidentalBudget: 1000, maxStreak: 0 };
+    const userDailyBudget = user.dailyBudget || 100;
+
     // Summaries utilizing the same date boundaries
-    const [dailyAgg, monthlyAgg, yearlyAgg, allTimeAgg, subscriptionsAgg] =
+    const [dailyAgg, dailyIncidentalAgg, monthlyAgg, monthlyIncidentalAgg, yearlyAgg, allTimeAgg, subscriptionsAgg] =
       await Promise.all([
         ExpenseModel.aggregate([
           {
@@ -80,6 +108,18 @@ export async function GET(req: NextRequest) {
               userId,
               date: { $gte: today, $lt: tomorrow },
               subscriptionId: null,
+              type: "daily",
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+        ExpenseModel.aggregate([
+          {
+            $match: {
+              userId,
+              date: { $gte: today, $lt: tomorrow },
+              subscriptionId: null,
+              type: "incidental",
             },
           },
           { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -90,6 +130,18 @@ export async function GET(req: NextRequest) {
               userId,
               date: { $gte: monthStart, $lt: nextMonth },
               subscriptionId: null,
+              type: "daily",
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]),
+        ExpenseModel.aggregate([
+          {
+            $match: {
+              userId,
+              date: { $gte: monthStart, $lt: nextMonth },
+              subscriptionId: null,
+              type: "incidental",
             },
           },
           { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -183,9 +235,9 @@ export async function GET(req: NextRequest) {
       {
         $group: {
           _id: {
-            year: { $year: "$date" },
-            month: { $month: "$date" },
-            day: { $dayOfMonth: "$date" },
+            year: { $year: { date: "$date", timezone: userTz } },
+            month: { $month: { date: "$date", timezone: userTz } },
+            day: { $dayOfMonth: { date: "$date", timezone: userTz } },
           },
           total: { $sum: "$amount" },
           count: { $sum: 1 },
@@ -216,9 +268,9 @@ export async function GET(req: NextRequest) {
       {
         $group: {
           _id: {
-            day: { $dayOfMonth: "$date" },
-            month: { $month: "$date" },
-            year: { $year: "$date" },
+            day: { $dayOfMonth: { date: "$date", timezone: userTz } },
+            month: { $month: { date: "$date", timezone: userTz } },
+            year: { $year: { date: "$date", timezone: userTz } },
           },
           total: { $sum: "$amount" },
         },
@@ -240,7 +292,7 @@ export async function GET(req: NextRequest) {
       },
       {
         $group: {
-          _id: { year: { $year: "$date" }, month: { $month: "$date" } },
+          _id: { year: { $year: { date: "$date", timezone: userTz } }, month: { $month: { date: "$date", timezone: userTz } } },
           total: { $sum: "$amount" },
           count: { $sum: 1 },
         },
@@ -255,7 +307,7 @@ export async function GET(req: NextRequest) {
       },
       {
         $group: {
-          _id: { $dayOfWeek: "$date" },
+          _id: { $dayOfWeek: { date: "$date", timezone: userTz } },
           total: { $sum: "$amount" },
           count: { $sum: 1 },
         },
@@ -263,7 +315,7 @@ export async function GET(req: NextRequest) {
       { $sort: { _id: 1 } },
     ]);
 
-    // Weekly trend (last 7 days - date wise) - EXCLUDING subscriptions
+    // Weekly trend (last 7 days - date wise)
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 6);
     const weeklyTrend = await ExpenseModel.aggregate([
@@ -273,9 +325,9 @@ export async function GET(req: NextRequest) {
       {
         $group: {
           _id: {
-            year: { $year: "$date" },
-            month: { $month: "$date" },
-            day: { $dayOfMonth: "$date" },
+            year: { $year: { date: "$date", timezone: userTz } },
+            month: { $month: { date: "$date", timezone: userTz } },
+            day: { $dayOfMonth: { date: "$date", timezone: userTz } },
           },
           total: { $sum: "$amount" },
         },
@@ -296,7 +348,7 @@ export async function GET(req: NextRequest) {
       },
       {
         $group: {
-          _id: { year: { $year: "$date" }, week: { $week: "$date" } },
+          _id: { year: { $year: { date: "$date", timezone: userTz } }, week: { $week: { date: "$date", timezone: userTz } } },
           total: { $sum: "$amount" },
         },
       },
@@ -331,6 +383,32 @@ export async function GET(req: NextRequest) {
       { $sort: { total: -1 } },
     ]);
 
+    // 2. Budget Streak Calculation
+    const allDailyExpenses = await ExpenseModel.aggregate([
+      { $match: { userId, type: "daily", subscriptionId: null, date: { $lt: tomorrow } } },
+      { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$date", timezone: userTz } }, total: { $sum: "$amount" } } },
+      { $sort: { _id: -1 } }
+    ]);
+
+    let currentStreak = 0;
+    const todayStr = today.toISOString().split('T')[0];
+    
+    // Check if yesterday or today was within budget to continue/start streak
+    for (let i = 0; i < allDailyExpenses.length; i++) {
+      const dayData = allDailyExpenses[i];
+      if (dayData.total <= userDailyBudget) {
+        currentStreak++;
+      } else {
+        // Break streak only if it's not today (today might not be over yet)
+        if (dayData._id !== todayStr) break;
+      }
+    }
+
+    // Update max streak if current is higher
+    if (currentStreak > (user.maxStreak || 0)) {
+      await UserModel.updateOne({ _id: userId }, { maxStreak: currentStreak });
+    }
+
     return NextResponse.json({
       expenses,
       total,
@@ -338,10 +416,15 @@ export async function GET(req: NextRequest) {
       totalPages: Math.ceil(total / limit),
       summary: {
         daily: dailyAgg[0]?.total || 0,
+        dailyIncidental: dailyIncidentalAgg[0]?.total || 0,
         monthly: monthlyAgg[0]?.total || 0,
+        monthlyIncidental: monthlyIncidentalAgg[0]?.total || 0,
         yearly: yearlyAgg[0]?.total || 0,
         allTime: allTimeAgg[0]?.total || 0,
         subscriptionTotal: subscriptionsAgg[0]?.total || 0,
+        streak: currentStreak,
+        maxStreak: Math.max(currentStreak, user.maxStreak || 0),
+        monthlyIncidentalBudget: user.monthlyIncidentalBudget || 1000,
         maxExpense: maxExpense || null,
         avgDaily,
         topCategoryWeek: categoryWeek[0] || null,
@@ -356,9 +439,14 @@ export async function GET(req: NextRequest) {
           },
         },
         forecast: (() => {
+          const currentMonthParts = getParts(now);
+          const year = parseInt(currentMonthParts.year || "0");
+          const month = parseInt(currentMonthParts.month || "0") - 1; // 0-indexed
+          const day = parseInt(currentMonthParts.day || "0"); // 1-indexed
+
           const totalDays = new Date(year, month + 1, 0).getDate();
           const spent = monthlyAgg[0]?.total || 0;
-          const currentDay = day; // 1-indexed
+          const currentDay = day; 
           const projected = (spent / currentDay) * totalDays;
           const daysRemaining = Math.max(totalDays - currentDay, 1);
 
@@ -382,6 +470,63 @@ export async function GET(req: NextRequest) {
         weeklyTrend, // 7 days
         yearlyWeeklyTrend, // 52 weeks
         weekdayPattern: weeklyAgg,
+        velocityData: (() => {
+          const currentMonthParts = getParts(now);
+          const year = parseInt(currentMonthParts.year || "0");
+          const month = parseInt(currentMonthParts.month || "0") - 1; // 0-indexed
+          const day = parseInt(currentMonthParts.day || "0"); // 1-indexed
+
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const idealDaily = (user.monthlyIncidentalBudget || 1000) / daysInMonth;
+          let cumulativeActual = 0;
+          return Array.from({ length: day }, (_, i) => {
+            const dayNum = i + 1;
+            const dayExpenses = expenses.filter(ex => {
+              const d = new Date(ex.date);
+              const expenseParts = getParts(d);
+              return parseInt(expenseParts.day || "0") === dayNum && parseInt(expenseParts.month || "0") - 1 === month && ex.type === "incidental";
+            });
+            cumulativeActual += dayExpenses.reduce((sum, ex) => sum + ex.amount, 0);
+            return {
+              day: dayNum,
+              actual: cumulativeActual,
+              ideal: idealDaily * dayNum
+            };
+          });
+        })(),
+        essentialsRatio: await (async () => {
+          const sevenDaysAgo = new Date(today);
+          sevenDaysAgo.setDate(today.getDate() - 7);
+          
+          const getRatioAgg = async (start: Date, end: Date) => {
+            return ExpenseModel.aggregate([
+              { $match: { userId, date: { $gte: start, $lt: end }, subscriptionId: null } },
+              { $group: { _id: "$type", total: { $sum: "$amount" } } }
+            ]);
+          };
+
+          const [rw, rm, ry] = await Promise.all([
+            getRatioAgg(sevenDaysAgo, tomorrow),
+            getRatioAgg(monthStart, nextMonth),
+            getRatioAgg(yearStart, nextYear)
+          ]);
+
+          const fmtR = (agg: any[]) => [
+            { name: "Survival", value: agg.find(a => a._id === "daily")?.total || 0, color: "var(--accent)" },
+            { name: "Lifestyle", value: agg.find(a => a._id === "incidental")?.total || 0, color: "#f72585" },
+          ];
+
+          return {
+            week: fmtR(rw),
+            month: fmtR(rm),
+            year: fmtR(ry)
+          };
+        })(),
+        incidentalDayPattern: await ExpenseModel.aggregate([
+          { $match: { userId, type: "incidental", date: { $gte: thirtyDaysAgo } } },
+          { $group: { _id: { $dayOfWeek: { date: "$date", timezone: userTz } }, total: { $sum: "$amount" } } },
+          { $sort: { _id: 1 } }
+        ])
       },
     });
   } catch (error) {
@@ -400,8 +545,21 @@ export async function POST(req: NextRequest) {
     if (!userId)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    const userTz = req.headers.get("x-timezone") || "UTC";
     const body = await req.json();
-    const { amount, category, description, date, location } = body;
+    const { amount, category, description, date, location, type } = body;
+
+    // Helper to get offset for the input date
+    const getOffset = (tz: string) => {
+      const s = new Date().toLocaleString('en-US', { timeZone: tz, timeZoneName: 'shortOffset' });
+      const m = s.match(/GMT([+-]\d+):?(\d+)?/);
+      if (!m) return "+00:00";
+      const sign = m[1].startsWith('-') ? '-' : '+';
+      const hours = m[1].replace(/[+-]/, '').padStart(2, '0');
+      const mins = (m[2] || "00").padStart(2, '0');
+      return `${sign}${hours}:${mins}`;
+    };
+    const offset = getOffset(userTz);
 
     if (!amount || !category || !description) {
       return NextResponse.json(
@@ -409,13 +567,13 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-
     const expense = await ExpenseModel.create({
       userId,
       amount: parseFloat(amount),
       category,
       description,
-      date: date ? new Date(`${date}T00:00:00+05:30`) : new Date(),
+      type: type || "daily",
+      date: date ? new Date(`${date}T00:00:00${offset}`) : new Date(),
       location,
     });
 

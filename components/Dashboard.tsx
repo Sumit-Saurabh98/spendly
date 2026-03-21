@@ -110,6 +110,7 @@ interface Expense {
   amount: number;
   category: string;
   description: string;
+  type: "daily" | "incidental";
   date: string;
   location?: { latitude: number; longitude: number; name?: string };
   createdAt: string;
@@ -147,6 +148,13 @@ interface ChartData {
   weeklyTrend: { _id: { year: number; month: number; day: number }; total: number; count: number }[];
   yearlyWeeklyTrend: { _id: { year: number; week: number }; total: number; count: number }[];
   weekdayPattern: { _id: number; total: number; count: number }[];
+  velocityData: { day: number; actual: number; ideal: number }[];
+  essentialsRatio: {
+    week: { name: string; value: number; color: string }[];
+    month: { name: string; value: number; color: string }[];
+    year: { name: string; value: number; color: string }[];
+  };
+  incidentalDayPattern: { _id: number; total: number; count: number }[];
 }
 
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -162,18 +170,28 @@ export default function Dashboard() {
   const [tab, setTab] = useState<Tab>("overview");
   const [dailyBudget, setDailyBudget] = useState(100);
   const [newBudget, setNewBudget] = useState("");
+  const [newIncidentalBudget, setNewIncidentalBudget] = useState("");
   const [showBudgetEdit, setShowBudgetEdit] = useState(false);
+  const [showIncidentalEdit, setShowIncidentalEdit] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [summary, setSummary] = useState({ 
-    daily: 0, monthly: 0, yearly: 0, allTime: 0, maxExpense: null as any, avgDaily: 0, 
+    daily: 0, dailyIncidental: 0, 
+    monthly: 0, monthlyIncidental: 0, 
+    yearly: 0, allTime: 0, 
+    maxExpense: null as any, avgDaily: 0, 
     topCategoryWeek: null as any,
+    streak: 0, maxStreak: 0,
+    monthlyIncidentalBudget: 1000,
     comparison: { thisMonth: { total: 0, categories: [] }, lastMonth: { total: 0, categories: [] } },
     forecast: { projected: 0, totalDays: 30, currentDay: 1, daysRemaining: 29 },
     subscriptionTotal: 0
   });
   const [charts, setCharts] = useState<ChartData>({
     categories: { week: [], month: [], year: [] },
-    dailyTrend: [], monthlyTrend: [], weeklyTrend: [], yearlyWeeklyTrend: [], weekdayPattern: [] 
+    dailyTrend: [], monthlyTrend: [], weeklyTrend: [], yearlyWeeklyTrend: [], weekdayPattern: [],
+    velocityData: [], 
+    essentialsRatio: { week: [], month: [], year: [] }, 
+    incidentalDayPattern: []
   });
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [detectedSubscriptions, setDetectedSubscriptions] = useState<any[]>([]);
@@ -187,19 +205,26 @@ export default function Dashboard() {
   }>({ type: null, data: null });
   const [alerts, setAlerts] = useState<string[]>([]);
   const [showReminder, setShowReminder] = useState(false);
-  const [logPeriod, setLogPeriod] = useState<"all" | "day" | "month" | "year">("month");
+  const [logPeriod, setLogPeriod] = useState<"day" | "month" | "year" | "all">("month");
   const [trendPeriod, setTrendPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
+  const [ratioPeriod, setRatioPeriod] = useState<"week" | "month" | "year">("month");
   const [categoryPeriod, setCategoryPeriod] = useState<"week" | "month" | "year">("year");
 
-  const getISTDate = () => {
-    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const getLocalISODate = () => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+    } catch (e) {
+      return new Date().toISOString().split('T')[0];
+    }
   };
 
   const [form, setForm] = useState({
     amount: "",
     category: CATEGORIES[0],
     description: "",
-    date: getISTDate(),
+    type: "daily" as "daily" | "incidental",
+    date: getLocalISODate(),
     location: null as { latitude: number; longitude: number; name?: string } | null,
   });
 
@@ -215,11 +240,9 @@ export default function Dashboard() {
       }
     };
     const checkReminder = () => {
-      const now = new Date();
-      const istTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-      const hours = istTime.getHours();
+      const hours = new Date().getHours();
       // Show reminder if after 9pm and no entries today
-      if (hours >= 21 && summary.daily === 0 && isAuthenticated) {
+      if (hours >= 21 && (summary?.daily === 0) && isAuthenticated) {
         setShowReminder(true);
       } else {
         setShowReminder(false);
@@ -236,7 +259,7 @@ export default function Dashboard() {
       clearInterval(interval);
       clearInterval(timer);
     };
-  }, [summary.daily, isAuthenticated]);
+  }, [summary?.daily, isAuthenticated]);
 
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -329,11 +352,14 @@ export default function Dashboard() {
     if (!userId) return;
 
     try {
+      const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const commonHeaders = { "x-user-id": userId, "x-timezone": userTz };
+      
       const [budgetRes, expensesRes, subsRes, goalsRes] = await Promise.all([
-        fetch("/api/budget", { headers: { "x-user-id": userId } }),
-        fetch(`/api/expenses?period=${logPeriod}&limit=100`, { headers: { "x-user-id": userId } }),
-        fetch("/api/subscriptions", { headers: { "x-user-id": userId } }),
-        fetch("/api/goals", { headers: { "x-user-id": userId } }),
+        fetch("/api/budget", { headers: commonHeaders }),
+        fetch(`/api/expenses?period=${logPeriod}&limit=100`, { headers: commonHeaders }),
+        fetch("/api/subscriptions", { headers: commonHeaders }),
+        fetch("/api/goals", { headers: commonHeaders }),
       ]);
       const budgetData = await budgetRes.json();
       const expensesData = await expensesRes.json();
@@ -342,8 +368,8 @@ export default function Dashboard() {
 
       setDailyBudget(budgetData.dailyBudget || 100);
       setExpenses(expensesData.expenses || []);
-      setSummary(expensesData.summary);
-      setCharts(expensesData.charts);
+      if (expensesData.summary) setSummary(expensesData.summary);
+      if (expensesData.charts) setCharts(expensesData.charts);
       setSubscriptions(subsData.subscriptions || []);
       setDetectedSubscriptions(subsData.detected || []);
       setGoals(goalsData || []);
@@ -385,21 +411,23 @@ export default function Dashboard() {
 
     const proceedSubmit = async () => {
       // Send Email Notification
+      const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       fetch("/api/notify/breach", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": userId },
+        headers: { "Content-Type": "application/json", "x-user-id": userId, "x-timezone": userTz },
         body: JSON.stringify({ amount: amountNum, monthBudget: monthlyBudget, description: form.description }),
       }).catch(err => console.error("Email notify failed", err));
 
       setSubmitting(true);
       try {
+        const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const res = await fetch("/api/expenses", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-user-id": userId },
+          headers: { "Content-Type": "application/json", "x-user-id": userId, "x-timezone": userTz },
           body: JSON.stringify({ ...form, amount: parseFloat(form.amount) }),
         });
         if (res.ok) {
-          setForm({ amount: "", category: CATEGORIES[0], description: "", date: getISTDate(), location: null });
+          setForm({ amount: "", category: CATEGORIES[0], description: "", type: "daily", date: getLocalISODate(), location: null });
           fetchData();
           setTab("overview");
         }
@@ -460,6 +488,22 @@ export default function Dashboard() {
     });
     setShowBudgetEdit(false);
     setNewBudget("");
+    fetchData();
+  };
+
+  const handleIncidentalBudgetSave = async () => {
+    const val = parseFloat(newIncidentalBudget);
+    if (!val || val <= 0) return;
+    const userId = localStorage.getItem("expense_user_id");
+    if (!userId) return;
+
+    await fetch("/api/budget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-user-id": userId },
+      body: JSON.stringify({ monthlyIncidentalBudget: val }),
+    });
+    setShowIncidentalEdit(false);
+    setNewIncidentalBudget("");
     fetchData();
   };
 
@@ -701,7 +745,31 @@ export default function Dashboard() {
               <span>Budget: {fmt(dailyBudget)}/day</span>
             </button>
           )}
-          <button onClick={handleLogout} style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px", color: "var(--red)", cursor: "pointer", display: "flex" }} title="Logout">
+          {showIncidentalEdit ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                className="input-field"
+                style={{ width: 140 }}
+                placeholder="Incidental budget"
+                type="number"
+                value={newIncidentalBudget}
+                onChange={(e) => setNewIncidentalBudget(e.target.value)}
+                autoFocus
+              />
+              <button className="btn-primary" style={{ padding: "8px 14px", background: "#f72585" }} onClick={handleIncidentalBudgetSave}>Save</button>
+              <button onClick={() => setShowIncidentalEdit(false)} style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text2)", cursor: "pointer", fontSize: 13 }}>✕</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setShowIncidentalEdit(true); setNewIncidentalBudget(String(summary.monthlyIncidentalBudget)); }}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(247, 37, 133, 0.05)", border: "1px solid rgba(247, 37, 133, 0.2)", borderRadius: 10, padding: "8px 14px", color: "#f72585", cursor: "pointer", fontSize: 13 }}
+            >
+              <Sparkles size={14} />
+              <span>Random: {fmt(summary.monthlyIncidentalBudget)}/mo</span>
+            </button>
+          )}
+          <button onClick={handleLogout}
+ style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px", color: "var(--red)", cursor: "pointer", display: "flex" }} title="Logout">
             <LogOutIcon size={16} />
           </button>
           <button onClick={fetchData} style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px", color: "var(--text2)", cursor: "pointer", display: "flex" }}>
@@ -752,34 +820,39 @@ export default function Dashboard() {
         {/* OVERVIEW TAB */}
         {tab === "overview" && (
           <div className="animate-slide-up">
-            {/* Budget Cards */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 20 }}>
               {[
-                { label: "Today", spent: summary.daily, budget: dailyBudget, icon: CalendarDays, pct: dailyPct, remaining: dailyBudget - summary.daily },
-                { label: "This Month", spent: summary.monthly, budget: monthly, icon: Calendar, pct: monthlyPct, remaining: monthly - summary.monthly },
-                { label: "This Year", spent: summary.yearly, budget: yearly, icon: CalendarRange, pct: yearlyPct, remaining: yearly - summary.yearly },
-              ].map(({ label, spent, budget, icon: Icon, pct, remaining }) => (
-                <div key={label} className="card card-hover" style={{ padding: 20 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                { label: "Daily Survival", spent: summary.daily, budget: dailyBudget, icon: CalendarDays, pct: dailyPct, remaining: dailyBudget - summary.daily, color: "var(--accent)" },
+                { label: "Monthly Incidental", spent: summary.monthlyIncidental, budget: summary.monthlyIncidentalBudget, icon: Sparkles, pct: Math.min((summary.monthlyIncidental / summary.monthlyIncidentalBudget) * 100, 100), remaining: summary.monthlyIncidentalBudget - summary.monthlyIncidental, color: "#f72585" },
+                { label: "Budget Streak", value: `${summary.streak} Days`, sub: `Best: ${summary.maxStreak}`, icon: TrendingUp, color: "var(--green)" },
+              ].map((card: any) => (
+                <div key={card.label} className="card card-hover" style={{ padding: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: card.value ? 8 : 16 }}>
                     <div>
-                      <p style={{ margin: 0, fontSize: 12, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</p>
+                      <p style={{ margin: 0, fontSize: 12, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{card.label}</p>
                       <p style={{ margin: "4px 0 0", fontSize: 28, fontWeight: 700, color: "var(--text)", fontFamily: "'DM Mono', monospace" }}>
-                        {fmt(spent)}
+                        {card.value || fmt(card.spent)}
                       </p>
                     </div>
                     <div style={{ width: 42, height: 42, borderRadius: 12, background: "var(--bg3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Icon size={20} color="var(--accent)" />
+                      <card.icon size={20} color={card.color} />
                     </div>
                   </div>
-                  <div className="progress-bar" style={{ marginBottom: 10 }}>
-                    <div className="progress-fill" style={{ width: `${pct}%`, background: progressColor(pct) }} />
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ color: "var(--text2)" }}>Budget: {fmt(budget)}</span>
-                    <span style={{ color: remaining >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
-                      {remaining >= 0 ? `${fmt(remaining)} left` : `${fmt(Math.abs(remaining))} over`}
-                    </span>
-                  </div>
+                  {card.value ? (
+                    <p style={{ margin: 0, fontSize: 12, color: "var(--text2)" }}>{card.sub}</p>
+                  ) : (
+                    <>
+                      <div className="progress-bar" style={{ marginBottom: 10 }}>
+                        <div className="progress-fill" style={{ width: `${card.pct}%`, background: card.label === "Daily Survival" ? progressColor(card.pct) : "#f72585" }} />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                        <span style={{ color: "var(--text2)" }}>Budget: {fmt(card.budget)}</span>
+                        <span style={{ color: card.remaining >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+                          {card.remaining >= 0 ? `${fmt(card.remaining)} left` : `${fmt(Math.abs(card.remaining))} over`}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -929,23 +1002,40 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Quick stats */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
+            {/* Quick stats with Progress Bars */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 20 }}>
               {[
-                { label: "Daily Budget", value: fmt(dailyBudget), sub: "per day", color: "var(--accent)", icon: IndianRupee },
-                { label: "Monthly Budget", value: fmt(monthly), sub: "× 31 days", color: "var(--blue)", icon: TrendingUp },
-                { label: "Yearly Budget", value: fmt(yearly), sub: "× 12 months", color: "var(--green)", icon: CalendarRange },
-                { label: "Avg / Day (Month)", value: fmt(Math.round(summary.monthly / new Date().getDate())), sub: "this month", color: "var(--yellow)", icon: TrendingDown },
-              ].map(({ label, value, sub, color, icon: Icon }) => (
-                <div key={label} className="card" style={{ padding: "16px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <Icon size={14} color={color} />
-                    <span style={{ fontSize: 11, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
+                { label: "Daily Survival", spent: summary.daily, budget: dailyBudget, color: "var(--accent)", icon: IndianRupee },
+                { label: "Monthly Total", spent: summary.monthly, budget: monthly, color: "var(--blue)", icon: TrendingUp },
+                { label: "Monthly Random", spent: summary.monthlyIncidental, budget: summary.monthlyIncidentalBudget, color: "#f72585", icon: Sparkles },
+              ].map(({ label, spent, budget, color, icon: Icon }) => {
+                const pct = Math.min((spent / budget) * 100, 100);
+                const remaining = budget - spent;
+                return (
+                  <div key={label} className="card card-hover" style={{ padding: "18px 20px", position: "relative", overflow: "hidden" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <Icon size={14} color={color} />
+                          <span style={{ fontSize: 11, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{label}</span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--text)", fontFamily: "'DM Mono', monospace" }}>
+                          {fmt(spent)} <span style={{ fontSize: 13, color: "var(--text2)", fontWeight: 400 }}>/ {fmt(budget)}</span>
+                        </p>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: remaining >= 0 ? "var(--green)" : "var(--red)" }}>
+                          {remaining >= 0 ? `${fmt(remaining)} left` : `${fmt(Math.abs(remaining))} over`}
+                        </p>
+                        <p style={{ margin: 0, fontSize: 10, color: "var(--text2)" }}>{Math.round(pct)}% used</p>
+                      </div>
+                    </div>
+                    <div style={{ height: 6, background: "var(--bg3)", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 3, transition: "width 1s cubic-bezier(0.4, 0, 0.2, 1)" }} />
+                    </div>
                   </div>
-                  <p style={{ margin: 0, fontSize: 20, fontWeight: 700, color, fontFamily: "'DM Mono', monospace" }}>{value}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text2)" }}>{sub}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Mini chart - Dynamic trend */}
@@ -981,6 +1071,100 @@ export default function Dashboard() {
                   <Area type="monotone" dataKey="budget" name="Budget" stroke="#22d3a0" fill="none" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
+            </div>
+
+            {/* New Insights Section: Essentials Ratio & Spending Velocity */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginTop: 20 }}>
+              {/* Essentials vs Lifestyle Donut */}
+              <div className="card" style={{ padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    Survival vs Lifestyle
+                  </h3>
+                  <select 
+                    className="input-field" 
+                    style={{ width: 80, padding: "4px 8px", fontSize: 11, background: "var(--bg3)" }}
+                    value={ratioPeriod}
+                    onChange={(e) => setRatioPeriod(e.target.value as any)}
+                  >
+                    <option value="week">7d</option>
+                    <option value="month">1mo</option>
+                    <option value="year">1yr</option>
+                  </select>
+                </div>
+                <div style={{ height: 200, position: "relative" }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={charts.essentialsRatio[ratioPeriod] || []}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {(charts.essentialsRatio[ratioPeriod] || []).map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<CustomTooltip />} />
+                      <Legend verticalAlign="bottom" height={36} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center", pointerEvents: "none", marginTop: -18 }}>
+                    <p style={{ margin: 0, fontSize: 10, color: "var(--text2)", textTransform: "uppercase" }}>Ratio</p>
+                    <p style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>
+                      {(() => {
+                        const data = charts.essentialsRatio[ratioPeriod] || [];
+                        const survival = data.find(d => d.name === "Survival")?.value || 0;
+                        const total = data.reduce((sum, d) => sum + d.value, 0);
+                        return total > 0 ? Math.round((survival / total) * 100) : 0;
+                      })()}%
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Incidental Velocity Chart */}
+              <div className="card" style={{ padding: 20 }}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Incidental Burn Rate
+                </h3>
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={charts.velocityData || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v}`} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area type="monotone" dataKey="actual" name="Actual Spending" stroke="#f72585" fill="rgba(247, 37, 133, 0.1)" strokeWidth={2} dot={false} />
+                    <Area type="monotone" dataKey="ideal" name="Ideal Budget" stroke="var(--text2)" fill="none" strokeWidth={1} strokeDasharray="4 4" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Weekend/Day-of-Week Heatmap */}
+            <div className="card" style={{ padding: 20, marginTop: 20 }}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 600, color: "var(--text2)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Random Spending Day-Pattern (Last 30d)
+                </h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={(charts.incidentalDayPattern || []).map(d => ({ name: WEEKDAYS[d._id - 1], spent: d.total }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--text2)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v}`} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="spent" name="Spent" radius={[4, 4, 0, 0]}>
+                      {(charts.incidentalDayPattern || []).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry._id === 1 || entry._id === 7 ? "#f72585" : "#ffbd00"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div style={{ marginTop: 12, fontSize: 11, color: "var(--text2)", textAlign: "center" }}>
+                    <span style={{ color: "#f72585" }}>● Weekends</span> vs <span style={{ color: "#ffbd00" }}>● Weekdays</span>
+                </div>
             </div>
           </div>
         )}
@@ -1020,12 +1204,59 @@ export default function Dashboard() {
                   <input
                     className="input-field"
                     type="text"
-                    placeholder="What did you spend on?"
                     value={form.description}
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    placeholder="e.g. Lunch at Office"
                     required
                   />
                 </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>Expense Type</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, type: "daily" })}
+                      style={{
+                        padding: "12px",
+                        borderRadius: 12,
+                        border: form.type === "daily" ? "1px solid var(--accent)" : "1px solid var(--border)",
+                        background: form.type === "daily" ? "rgba(124, 92, 252, 0.1)" : "var(--bg3)",
+                        color: form.type === "daily" ? "var(--accent)" : "var(--text2)",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "all 0.2s"
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <span>Daily Survival</span>
+                        <span style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>Food, Transport, Groceries</span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, type: "incidental" })}
+                      style={{
+                        padding: "12px",
+                        borderRadius: 12,
+                        border: form.type === "incidental" ? "1px solid #f72585" : "1px solid var(--border)",
+                        background: form.type === "incidental" ? "rgba(247, 37, 133, 0.1)" : "var(--bg3)",
+                        color: form.type === "incidental" ? "#f72585" : "var(--text2)",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "all 0.2s"
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <span>Incidental / Random</span>
+                        <span style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>Movies, Parties, Shopping</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
                 <div style={{ marginBottom: 24 }}>
                   <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Location (Optional)</label>
                   <div style={{ display: "flex", gap: 8 }}>
