@@ -399,6 +399,7 @@ export default function Dashboard() {
     totalSixMonth: 0,
     totalYear: 0,
   });
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [charts, setCharts] = useState<ChartData>({
     categories: { week: [], month: [], year: [] },
     dailyTrend: { week: [], month: [], year: [] },
@@ -655,6 +656,7 @@ export default function Dashboard() {
       console.error(e);
     } finally {
       setLoading(false);
+      setIsInitialLoading(false);
     }
   }, [logPeriod]);
 
@@ -1383,7 +1385,11 @@ export default function Dashboard() {
                           fontFamily: "'DM Mono', monospace",
                         }}
                       >
-                        {card.value || fmt(card.spent)}
+                        {isInitialLoading ? (
+                          <span className="skeleton" style={{ display: 'inline-block', width: '120px', height: '32px' }}></span>
+                        ) : (
+                          card.value || fmt(card.spent)
+                        )}
                       </p>
                     </div>
                     <div
@@ -1408,21 +1414,25 @@ export default function Dashboard() {
                     </p>
                   ) : (
                     <>
-                      <div
-                        className="progress-bar"
-                        style={{ marginBottom: 10 }}
-                      >
-                        <div
-                          className="progress-fill"
-                          style={{
-                            width: `${card.pct}%`,
-                            background:
-                              card.label === "Daily Survival"
-                                ? progressColor(card.pct)
-                                : "#f72585",
-                          }}
-                        />
-                      </div>
+                        {isInitialLoading ? (
+                          <div className="skeleton" style={{ height: 8, borderRadius: 99, marginBottom: 10 }}></div>
+                        ) : (
+                          <div
+                            className="progress-bar"
+                            style={{ marginBottom: 10 }}
+                          >
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: `${card.pct}%`,
+                                background:
+                                  card.label === "Daily Survival"
+                                    ? progressColor(card.pct)
+                                    : "#f72585",
+                              }}
+                            />
+                          </div>
+                        )}
                       <div
                         style={{
                           display: "flex",
@@ -1430,22 +1440,31 @@ export default function Dashboard() {
                           fontSize: 12,
                         }}
                       >
-                        <span style={{ color: "var(--text2)" }}>
-                          Budget: {fmt(card.budget)}
-                        </span>
-                        <span
-                          style={{
-                            color:
-                              card.remaining >= 0
-                                ? "var(--green)"
-                                : "var(--red)",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {card.remaining >= 0
-                            ? `${fmt(card.remaining)} left`
-                            : `${fmt(Math.abs(card.remaining))} over`}
-                        </span>
+                        {isInitialLoading ? (
+                          <>
+                            <span className="skeleton-text" style={{ width: '80px' }}></span>
+                            <span className="skeleton-text" style={{ width: '60px' }}></span>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ color: "var(--text2)" }}>
+                              Budget: {fmt(card.budget)}
+                            </span>
+                            <span
+                              style={{
+                                color:
+                                  card.remaining >= 0
+                                    ? "var(--green)"
+                                    : "var(--red)",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {card.remaining >= 0
+                                ? `${fmt(card.remaining)} left`
+                                : `${fmt(Math.abs(card.remaining))} over`}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </>
                   )}
@@ -2173,54 +2192,58 @@ export default function Dashboard() {
                   <option value="year">1 Year</option>
                 </select>
               </div>
-              <ResponsiveContainer width="100%" height={160}>
-                <AreaChart data={trendData}>
-                  <defs>
-                    <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#7c5cfc" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#7c5cfc" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="var(--border)"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 10, fill: "var(--text2)" }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval={trendPeriod === "year" ? 4 : 1}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: "var(--text2)" }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => `₹${v}`}
-                  />
-                  <Tooltip content={<CustomTooltip />} cursor={false} />
-                  <Area
-                    type="monotone"
-                    dataKey="spent"
-                    name="Spent"
-                    stroke="#7c5cfc"
-                    fill="url(#spendGrad)"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="budget"
-                    name="Budget"
-                    stroke="#22d3a0"
-                    fill="none"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    dot={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {isInitialLoading ? (
+                <div className="skeleton" style={{ width: '100%', height: 160, borderRadius: 12 }}></div>
+              ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <AreaChart data={trendData}>
+                    <defs>
+                      <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#7c5cfc" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#7c5cfc" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="var(--border)"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 10, fill: "var(--text2)" }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval={trendPeriod === "year" ? 4 : 1}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: "var(--text2)" }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v) => `₹${v}`}
+                    />
+                    <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--border)", strokeWidth: 2 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="spent"
+                      name="Spent"
+                      stroke="#7c5cfc"
+                      fill="url(#spendGrad)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="budget"
+                      name="Budget"
+                      stroke="#22d3a0"
+                      fill="none"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
 
             {/* New Insights Section: Essentials Ratio & Spending Velocity */}
@@ -2271,27 +2294,31 @@ export default function Dashboard() {
                   </select>
                 </div>
                 <div style={{ height: 200, position: "relative" }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={charts.essentialsRatio[ratioPeriod] || []}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {(charts.essentialsRatio[ratioPeriod] || []).map(
-                          (entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ),
-                        )}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip />} />
-                      <Legend verticalAlign="bottom" height={36} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {isInitialLoading ? (
+                    <div className="skeleton" style={{ width: '100%', height: 200, borderRadius: '50%' }}></div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={charts.essentialsRatio[ratioPeriod] || []}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {(charts.essentialsRatio[ratioPeriod] || []).map(
+                            (entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ),
+                          )}
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                        <Legend verticalAlign="bottom" height={36} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
                   <div
                     style={{
                       position: "absolute",
@@ -2367,47 +2394,51 @@ export default function Dashboard() {
                     <option value="year">1 Year</option>
                   </select>
                 </div>
-                <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={charts.velocityData[velocityPeriod] || []}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="var(--border)"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="day"
-                      tick={{ fontSize: 10, fill: "var(--text2)" }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 10, fill: "var(--text2)" }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(v) => `₹${v}`}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="actual"
-                      name="Actual Spending"
-                      stroke="#f72585"
-                      fill="rgba(247, 37, 133, 0.1)"
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="ideal"
-                      name="Ideal Budget"
-                      stroke="var(--text2)"
-                      fill="none"
-                      strokeWidth={1}
-                      strokeDasharray="4 4"
-                      dot={false}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                {isInitialLoading ? (
+                  <div className="skeleton" style={{ width: '100%', height: 200, borderRadius: 12 }}></div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={charts.velocityData[velocityPeriod] || []}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="day"
+                        tick={{ fontSize: 10, fill: "var(--text2)" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: "var(--text2)" }}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(v) => `₹${v}`}
+                      />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area
+                        type="monotone"
+                        dataKey="actual"
+                        name="Actual Spending"
+                        stroke="#f72585"
+                        fill="rgba(247, 37, 133, 0.1)"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="ideal"
+                        name="Ideal Budget"
+                        stroke="var(--text2)"
+                        fill="none"
+                        strokeWidth={1}
+                        strokeDasharray="4 4"
+                        dot={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
 
@@ -2449,46 +2480,50 @@ export default function Dashboard() {
                   <option value="year">1 Year</option>
                 </select>
               </div>
-              <ResponsiveContainer width="100%" height={160}>
-                <BarChart
-                  data={(charts.weeklyPattern[incidentalPeriod] || []).map(
-                    (d: any) => ({ name: WEEKDAYS[d._id - 1], spent: d.total }),
-                  )}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="var(--border)"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 10, fill: "var(--text2)" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: "var(--text2)" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => `₹${v}`}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="spent" name="Spent" radius={[4, 4, 0, 0]}>
-                    {(charts.weeklyPattern[incidentalPeriod] || []).map(
-                      (entry: any, index: number) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            entry._id === 1 || entry._id === 7
-                              ? "#f72585"
-                              : "#ffbd00"
-                          }
-                        />
-                      ),
+              {isInitialLoading ? (
+                <div className="skeleton" style={{ width: '100%', height: 160, borderRadius: 12 }}></div>
+              ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart
+                    data={(charts.weeklyPattern[incidentalPeriod] || []).map(
+                      (d: any) => ({ name: WEEKDAYS[d._id - 1], spent: d.total }),
                     )}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="var(--border)"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 10, fill: "var(--text2)" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: "var(--text2)" }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `₹${v}`}
+                    />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="spent" name="Spent" radius={[4, 4, 0, 0]}>
+                      {(charts.weeklyPattern[incidentalPeriod] || []).map(
+                        (entry: any, index: number) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={
+                              entry._id === 1 || entry._id === 7
+                                ? "#f72585"
+                                : "#ffbd00"
+                            }
+                          />
+                        ),
+                      )}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
               <div
                 style={{
                   marginTop: 12,
@@ -2553,7 +2588,9 @@ export default function Dashboard() {
                     <option value="year">1 Year</option>
                   </select>
                 </div>
-                {pieData.length > 0 ? (
+                {isInitialLoading ? (
+                  <div className="skeleton" style={{ width: '100%', height: 260, borderRadius: 12 }}></div>
+                ) : pieData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={260}>
                     <PieChart>
                       <Pie
@@ -2600,7 +2637,9 @@ export default function Dashboard() {
                 >
                   Top Categories
                 </h3>
-                {pieData.length > 0 ? (
+                {isInitialLoading ? (
+                  <div className="skeleton" style={{ width: '100%', height: 260, borderRadius: 12 }}></div>
+                ) : pieData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={260}>
                     <BarChart data={pieData.slice(0, 6)} layout="vertical">
                       <CartesianGrid
@@ -4615,7 +4654,13 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {expenses.length === 0 ? (
+            {isInitialLoading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[1, 2, 3, 4, 5].map(i => (
+                  <div key={i} className="skeleton" style={{ height: 80, borderRadius: 12 }}></div>
+                ))}
+              </div>
+            ) : expenses.length === 0 ? (
               <div
                 className="card"
                 style={{ padding: 48, textAlign: "center" }}
@@ -4888,8 +4933,6 @@ export default function Dashboard() {
                   alignItems: "center",
                   gap: 20,
                   marginBottom: 32,
-                  borderBottom: "1px solid var(--border)",
-                  paddingBottom: 24,
                 }}
               >
                 <div
