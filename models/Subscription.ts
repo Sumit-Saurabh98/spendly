@@ -25,8 +25,4 @@ const SubscriptionSchema = new Schema<ISubscription>(
   { timestamps: true }
 );
 
-if (mongoose.models.Subscription) {
-  delete (mongoose as any).models.Subscription;
-}
-
-export const SubscriptionModel = mongoose.model<ISubscription>("Subscription", SubscriptionSchema);
+export const SubscriptionModel = mongoose.models.Subscription || mongoose.model<ISubscription>("Subscription", SubscriptionSchema);

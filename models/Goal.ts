@@ -25,8 +25,4 @@ const GoalSchema = new Schema<IGoal>(
   { timestamps: true }
 );
 
-if (mongoose.models.Goal) {
-  delete (mongoose as any).models.Goal;
-}
-
 export const GoalModel = mongoose.model<IGoal>("Goal", GoalSchema);

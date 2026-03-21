@@ -34,8 +34,4 @@ const ExpenseSchema = new Schema<IExpense>(
   { timestamps: true }
 );
 
-if (mongoose.models.Expense) {
-  delete (mongoose as any).models.Expense;
-}
-
-export const ExpenseModel = mongoose.model<IExpense>("Expense", ExpenseSchema);
+export const ExpenseModel = mongoose.models.Expense || mongoose.model<IExpense>("Expense", ExpenseSchema);
