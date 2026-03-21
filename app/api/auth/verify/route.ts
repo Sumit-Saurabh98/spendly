@@ -28,7 +28,6 @@ export async function POST(req: Request) {
     if (!user) {
       user = await UserModel.create({
         email,
-        isOnboarded: false,
         dailyBudget: 100,
         monthlyBudget: 3000,
         yearlyBudget: 36500,
@@ -43,7 +42,6 @@ export async function POST(req: Request) {
       user: {
         _id: user._id,
         email: user.email,
-        isOnboarded: user.isOnboarded,
         dailyBudget: user.dailyBudget,
       }
     });

@@ -30,7 +30,9 @@ export async function POST(req: Request) {
     const userId = req.headers.get("x-user-id");
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { messages } = await req.json();
+    const { messages, currency, currencySymbol } = await req.json();
+    const userCurr = currency || "INR";
+    const userSymbol = currencySymbol || "₹";
 
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
@@ -60,7 +62,8 @@ export async function POST(req: Request) {
         {
           role: "system",
           content: `You are a helpful and intelligent Spendly Expense Tracker Assistant. 
-          Current Local Time (IST): ${nowIST}.
+          Current Local Time: ${nowIST}.
+          User Preferred Currency: ${userCurr} (${userSymbol}).
           Your goal is strictly to help users manage their finances and answer questions ONLY about their profile, expenses, savings goals, and subscriptions.
           
           CAPABILITIES:
@@ -72,7 +75,7 @@ export async function POST(req: Request) {
           1. ONLY answer questions related to the user's financial profile, expenses, budget, goals, or subscriptions.
           2. IF A USER ASKS ABOUT ANYTHING ELSE (e.g., general knowledge, coding, science, history), YOU MUST REFUSE professionally.
           3. Generic Refusal: "I am here to help you about your profile and financial data. I cannot answer questions on other topics."
-          4. ALWAYS use Indian Rupees (₹) for ALL currency values.
+          4. ALWAYS use the user's preferred currency: ${userCurr} (${userSymbol}) for ALL values.
           5. Be concise and maintain a small token footprint.`,
         },
         ...messages,
@@ -164,7 +167,7 @@ export async function POST(req: Request) {
             monthly: monthly[0]?.total || 0,
             yearly: yearly[0]?.total || 0,
             subscriptionTotal: subTotal,
-            currency: "INR (₹)"
+            currency: `${userCurr} (${userSymbol})`
           });
         } else if (tc.function.name === "search_expenses") {
           const args = JSON.parse(tc.function.arguments);
@@ -201,7 +204,7 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: "You are a Spendly AI assistant. Analyze the tool results and answer the user question based on them. ONLY answer questions related to the user's financial profile and data. For all other topics, provide a generic refusal. ALWAYS use ₹ and INR.",
+            content: `You are a Spendly AI assistant. Analyze the tool results and answer the user question based on them. ONLY answer questions related to the user's financial profile and data. For all other topics, provide a generic refusal. ALWAYS use ${userCurr} (${userSymbol}).`,
           },
           ...updatedMessages
         ],

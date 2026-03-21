@@ -7,7 +7,10 @@ export interface IUser extends Document {
   monthlyIncidentalBudget: number;
   yearlyBudget: number;
   maxStreak: number;
-  isOnboarded: boolean;
+  currency: string;
+  currencySymbol: string;
+  country: string;
+  timezone: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,7 +23,10 @@ const UserSchema = new Schema<IUser>(
     monthlyIncidentalBudget: { type: Number, default: 1000 },
     yearlyBudget: { type: Number, default: 36500 },
     maxStreak: { type: Number, default: 0 },
-    isOnboarded: { type: Boolean, default: false },
+    currency: { type: String, default: "INR" },
+    currencySymbol: { type: String, default: "₹" },
+    country: { type: String, default: "IN" },
+    timezone: { type: String, default: "Asia/Kolkata" },
   },
   { timestamps: true }
 );

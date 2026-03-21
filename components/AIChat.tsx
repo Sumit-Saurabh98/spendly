@@ -16,7 +16,7 @@ const SUGGESTIONS = [
   "Show me my recent food expenses",
 ];
 
-export default function AIChat({ userId }: { userId: string }) {
+export default function AIChat({ userId, currency, currencySymbol }: { userId: string, currency: string, currencySymbol: string }) {
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", content: "Hello! I'm your AI Expense Assistant. Ask me anything about your spending, budgets, or transactions!", timestamp: new Date().toISOString() }
   ]);
@@ -64,7 +64,7 @@ export default function AIChat({ userId }: { userId: string }) {
           "Content-Type": "application/json",
           "x-user-id": userId 
         },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, currency, currencySymbol }),
       });
 
       const data = await res.json();

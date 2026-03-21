@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   LayoutDashboard, PlusCircle, BarChart3, List, AlertTriangle,
-  TrendingUp, TrendingDown, Wallet, Calendar, CalendarDays,
-  CalendarRange, Trash2, RefreshCw, Settings, IndianRupee, Sparkles,
+  TrendingUp, TrendingDown, Wallet, CalendarDays,
+ Trash2, RefreshCw, Settings, IndianRupee, Sparkles,
   Lock, Key, Map, Locate, X, Mail,
-  LogOutIcon
+  LogOutIcon, User
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -17,13 +17,18 @@ import AIChat from "./AIChat";
 
 const COLORS = ["#7c5cfc", "#22d3a0", "#ff5370", "#ffd166", "#4da6ff", "#ff8c42", "#b983ff", "#00b4d8", "#f72585", "#90e0ef"];
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
+const CURRENCIES = [
+  { code: "INR", symbol: "₹", name: "Indian Rupee" },
+  { code: "USD", symbol: "$", name: "US Dollar" },
+  { code: "EUR", symbol: "€", name: "Euro" },
+  { code: "GBP", symbol: "£", name: "British Pound" },
+  { code: "JPY", symbol: "¥", name: "Japanese Yen" },
+  { code: "AED", symbol: "د.إ", name: "UAE Dirham" },
+  { code: "CAD", symbol: "C$", name: "Canadian Dollar" },
+  { code: "AUD", symbol: "A$", name: "Australian Dollar" },
+];
 
-const fmtDate = (d: string) =>
-  new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-
-const MapView = ({ expenses }: { expenses: Expense[] }) => {
+const MapView = ({ expenses, currencySymbol }: { expenses: Expense[], currencySymbol: string }) => {
   useEffect(() => {
     if (typeof window === "undefined" || !(window as any).L) return;
 
@@ -45,7 +50,7 @@ const MapView = ({ expenses }: { expenses: Expense[] }) => {
         .bindPopup(`
           <div style="font-family: inherit; padding: 4px; min-width: 120px;">
             <b style="color: #7c5cfc; font-size: 13px; text-transform: uppercase;">${ex.category}</b>
-            <div style="font-weight: 800; font-size: 18px; margin: 4px 0;">₹${ex.amount.toLocaleString('en-IN')}</div>
+            <div style="font-weight: 800; font-size: 18px; margin: 4px 0;">${currencySymbol}${ex.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
             <div style="color: #64748b; font-size: 12px; border-top: 1px solid #eee; padding-top: 4px; margin-top: 4px;">${ex.description}</div>
           </div>
         `);
@@ -103,7 +108,7 @@ const Modal = ({ isOpen, onClose, title, children, type = "default" }: { isOpen:
   );
 };
 
-type Tab = "overview" | "add" | "charts" | "logs" | "map" | "subscriptions" | "goals" | "chat";
+type Tab = "overview" | "add" | "charts" | "logs" | "map" | "subscriptions" | "goals" | "chat" | "profile";
 
 interface Expense {
   _id: string;
@@ -168,6 +173,9 @@ export default function Dashboard() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   const [tab, setTab] = useState<Tab>("overview");
+  const [currency, setCurrency] = useState("INR");
+  const [currencySymbol, setCurrencySymbol] = useState("₹");
+  const [country, setCountry] = useState("IN");
   const [dailyBudget, setDailyBudget] = useState(100);
   const [newBudget, setNewBudget] = useState("");
   const [newIncidentalBudget, setNewIncidentalBudget] = useState("");
@@ -209,6 +217,12 @@ export default function Dashboard() {
   const [trendPeriod, setTrendPeriod] = useState<"weekly" | "monthly" | "yearly">("monthly");
   const [ratioPeriod, setRatioPeriod] = useState<"week" | "month" | "year">("month");
   const [categoryPeriod, setCategoryPeriod] = useState<"week" | "month" | "year">("year");
+
+  const fmt = (n: number) =>
+    new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "INR", maximumFractionDigits: 0 }).format(n);
+
+  const fmtDate = (d: string) =>
+    new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 
   const getLocalISODate = () => {
     try {
@@ -355,16 +369,41 @@ export default function Dashboard() {
       const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const commonHeaders = { "x-user-id": userId, "x-timezone": userTz };
       
-      const [budgetRes, expensesRes, subsRes, goalsRes] = await Promise.all([
+      const [budgetRes, expensesRes, subsRes, goalsRes, userRes] = await Promise.all([
         fetch("/api/budget", { headers: commonHeaders }),
         fetch(`/api/expenses?period=${logPeriod}&limit=100`, { headers: commonHeaders }),
         fetch("/api/subscriptions", { headers: commonHeaders }),
         fetch("/api/goals", { headers: commonHeaders }),
+        fetch("/api/user", { headers: commonHeaders }),
       ]);
       const budgetData = await budgetRes.json();
       const expensesData = await expensesRes.json();
       const subsData = await subsRes.json();
       const goalsData = await goalsRes.json();
+      const userData = await userRes.json();
+
+      if (!userData.error) {
+        setCurrency(userData.currency || "INR");
+        setCurrencySymbol(userData.currencySymbol || "₹");
+        setCountry(userData.country || "IN");
+        
+        // Auto-detect if new user or default values
+        if (!userData.currency) {
+          try {
+            const detectedCurrency = Intl.NumberFormat().resolvedOptions().currency || "INR";
+            const detectedSymbol = new Intl.NumberFormat(undefined, { style: 'currency', currency: detectedCurrency }).formatToParts(1).find(p => p.type === 'currency')?.value || "₹";
+            setCurrency(detectedCurrency);
+            setCurrencySymbol(detectedSymbol);
+            
+            // Save detected values
+            fetch("/api/user", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...commonHeaders },
+              body: JSON.stringify({ currency: detectedCurrency, currencySymbol: detectedSymbol })
+            });
+          } catch (err) { console.error("Auto-detect failed", err); }
+        }
+      }
 
       setDailyBudget(budgetData.dailyBudget || 100);
       setExpenses(expensesData.expenses || []);
@@ -440,7 +479,7 @@ export default function Dashboard() {
       setModal({
         type: "flash-alert",
         data: {
-          message: `⚠️ Flash Alert: This expense (₹${amountNum}) is more than 20% of your total monthly budget (₹${monthlyBudget}). Proceed?`,
+          message: `⚠️ Flash Alert: This expense (${currencySymbol}${amountNum}) is more than 20% of your total monthly budget (${currencySymbol}${monthlyBudget}). Proceed?`,
           onConfirm: () => {
             setModal({ type: null, data: null });
             proceedSubmit();
@@ -722,56 +761,6 @@ export default function Dashboard() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {showBudgetEdit ? (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                className="input-field"
-                style={{ width: 120 }}
-                placeholder="Daily budget"
-                type="number"
-                value={newBudget}
-                onChange={(e) => setNewBudget(e.target.value)}
-                autoFocus
-              />
-              <button className="btn-primary" style={{ padding: "8px 14px" }} onClick={handleBudgetSave}>Save</button>
-              <button onClick={() => setShowBudgetEdit(false)} style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text2)", cursor: "pointer", fontSize: 13 }}>✕</button>
-            </div>
-          ) : (
-            <button
-              onClick={() => { setShowBudgetEdit(true); setNewBudget(String(dailyBudget)); }}
-              style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 14px", color: "var(--text2)", cursor: "pointer", fontSize: 13 }}
-            >
-              <Settings size={14} />
-              <span>Budget: {fmt(dailyBudget)}/day</span>
-            </button>
-          )}
-          {showIncidentalEdit ? (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                className="input-field"
-                style={{ width: 140 }}
-                placeholder="Incidental budget"
-                type="number"
-                value={newIncidentalBudget}
-                onChange={(e) => setNewIncidentalBudget(e.target.value)}
-                autoFocus
-              />
-              <button className="btn-primary" style={{ padding: "8px 14px", background: "#f72585" }} onClick={handleIncidentalBudgetSave}>Save</button>
-              <button onClick={() => setShowIncidentalEdit(false)} style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text2)", cursor: "pointer", fontSize: 13 }}>✕</button>
-            </div>
-          ) : (
-            <button
-              onClick={() => { setShowIncidentalEdit(true); setNewIncidentalBudget(String(summary.monthlyIncidentalBudget)); }}
-              style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(247, 37, 133, 0.05)", border: "1px solid rgba(247, 37, 133, 0.2)", borderRadius: 10, padding: "8px 14px", color: "#f72585", cursor: "pointer", fontSize: 13 }}
-            >
-              <Sparkles size={14} />
-              <span>Random: {fmt(summary.monthlyIncidentalBudget)}/mo</span>
-            </button>
-          )}
-          <button onClick={handleLogout}
- style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px", color: "var(--red)", cursor: "pointer", display: "flex" }} title="Logout">
-            <LogOutIcon size={16} />
-          </button>
           <button onClick={fetchData} style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px", color: "var(--text2)", cursor: "pointer", display: "flex" }}>
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           </button>
@@ -801,6 +790,7 @@ export default function Dashboard() {
           { id: "goals", label: "Goals", icon: Wallet },
           { id: "chat", label: "AI Assistant", icon: Sparkles },
           { id: "map", label: "Map", icon: Map },
+          { id: "profile", label: "Profile", icon: Settings },
         ] as const).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -1176,7 +1166,7 @@ export default function Dashboard() {
               <h2 style={{ margin: "0 0 24px", fontSize: 20, fontWeight: 700 }}>Add New Expense</h2>
               <form onSubmit={handleAddExpense}>
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Amount (₹) *</label>
+                  <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Amount ({currencySymbol}) *</label>
                   <input
                     className="input-field"
                     type="number"
@@ -1507,7 +1497,7 @@ export default function Dashboard() {
                             <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{ds.name}</h4>
                             <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text2)" }}>Appears {ds.occurrences} times recently</p>
                           </div>
-                          <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--accent)" }}>₹{ds.amount}</p>
+                          <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--accent)" }}>{currencySymbol}{ds.amount}</p>
                         </div>
                         <button 
                           className="btn-primary" 
@@ -1545,7 +1535,7 @@ export default function Dashboard() {
                           <span style={{ fontSize: 11, background: "rgba(124, 92, 252, 0.1)", color: "var(--accent)", padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{s.category}</span>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                          <p style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>₹{s.amount}</p>
+                          <p style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{currencySymbol}{s.amount}</p>
                           <button 
                             style={{ background: "none", border: "none", color: "#ff5370", fontSize: 11, cursor: "pointer", padding: 0 }}
                             onClick={() => handleDelete(s._id, "subscription")}
@@ -1557,7 +1547,7 @@ export default function Dashboard() {
                     ))}
                     <div style={{ marginTop: 20, padding: 16, background: "var(--bg3)", borderRadius: 12, border: "1px solid var(--border)" }}>
                       <p style={{ margin: 0, fontSize: 12, color: "var(--text2)" }}>Total Fixed Costs:</p>
-                      <p style={{ margin: "4px 0 0", fontSize: 24, fontWeight: 800, color: "var(--text)" }}>₹{subscriptions.reduce((sum, s) => sum + s.amount, 0)}<span style={{ fontSize: 14, fontWeight: 400, color: "var(--text2)" }}>/month</span></p>
+                      <p style={{ margin: "4px 0 0", fontSize: 24, fontWeight: 800, color: "var(--text)" }}>{currencySymbol}{subscriptions.reduce((sum, s) => sum + s.amount, 0)}<span style={{ fontSize: 14, fontWeight: 400, color: "var(--text2)" }}>/month</span></p>
                     </div>
                   </div>
                 )}
@@ -1646,7 +1636,7 @@ export default function Dashboard() {
                       <input name="name" required className="input-field" placeholder="e.g. New Laptop" />
                     </div>
                     <div>
-                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6 }}>Target Amount (₹)</label>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 6 }}>Target Amount ({currencySymbol})</label>
                       <input name="amount" type="number" required className="input-field" placeholder="50000" />
                     </div>
                     <div>
@@ -1688,7 +1678,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ) : (
-                  <MapView expenses={expenses} />
+                  <MapView expenses={expenses} currencySymbol={currencySymbol} />
                 )}
               </div>
 
@@ -1806,7 +1796,120 @@ export default function Dashboard() {
         )}
 
         {/* AI CHAT TAB */}
-        {tab === "chat" && <AIChat userId={localStorage.getItem("expense_user_id") || ""} />}
+        {tab === "chat" && <AIChat userId={localStorage.getItem("expense_user_id") || ""} currency={currency} currencySymbol={currencySymbol} />}
+
+        {/* PROFILE TAB */}
+        {tab === "profile" && (
+          <div className="animate-slide-up" style={{ maxWidth: 800, margin: "0 auto" }}>
+            <div className="card" style={{ padding: 32, background: "var(--bg2)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 32, borderBottom: "1px solid var(--border)", paddingBottom: 24 }}>
+                <div style={{ width: 64, height: 64, borderRadius: 20, background: "rgba(124, 92, 252, 0.1)", color: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <User size={32} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>User Management</h2>
+                  <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--text2)" }}>{localStorage.getItem("expense_user_email")}</p>
+                </div>
+                <button onClick={handleLogout} style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 12, border: "1px solid var(--red)", background: "rgba(255, 83, 112, 0.05)", color: "var(--red)", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>
+                  <LogOutIcon size={18} /> Logout
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
+                {/* Left Column: Budgets */}
+                <div>
+                  <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 600, display: "flex", alignItems: "center", gap: 10 }}>
+                    <Wallet size={20} className="text-accent" /> Budget Settings
+                  </h3>
+                  
+                  <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                    <div className="card" style={{ padding: 16, background: "var(--bg3)", border: "1px solid var(--border)" }}>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8, fontWeight: 600 }}>DAILY SURVIVAL BUDGET</label>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <div style={{ position: "relative", flex: 1 }}>
+                          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text2)", fontSize: 14 }}>{currencySymbol}</span>
+                          <input 
+                            type="number" 
+                            className="input-field" 
+                            style={{ paddingLeft: 30 }}
+                            value={newBudget || dailyBudget} 
+                            onChange={(e) => setNewBudget(e.target.value)}
+                          />
+                        </div>
+                        <button className="btn-primary" style={{ padding: "0 16px" }} onClick={handleBudgetSave}>Update</button>
+                      </div>
+                    </div>
+
+                    <div className="card" style={{ padding: 16, background: "var(--bg3)", border: "1px solid var(--border)" }}>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8, fontWeight: 600 }}>MONTHLY INCIDENTAL BUDGET</label>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <div style={{ position: "relative", flex: 1 }}>
+                          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text2)", fontSize: 14 }}>{currencySymbol}</span>
+                          <input 
+                            type="number" 
+                            className="input-field" 
+                            style={{ paddingLeft: 30 }}
+                            value={newIncidentalBudget || summary.monthlyIncidentalBudget} 
+                            onChange={(e) => setNewIncidentalBudget(e.target.value)}
+                          />
+                        </div>
+                        <button className="btn-primary" style={{ padding: "0 16px", background: "#f72585" }} onClick={handleIncidentalBudgetSave}>Update</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: Preferences */}
+                <div>
+                  <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 600, display: "flex", alignItems: "center", gap: 10 }}>
+                    <Map size={20} className="text-accent" /> Preferences
+                  </h3>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                    <div className="card" style={{ padding: 16, background: "var(--bg3)", border: "1px solid var(--border)" }}>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8, fontWeight: 600 }}>PREFERRED CURRENCY</label>
+                      <select 
+                        className="input-field" 
+                        value={currency} 
+                        onChange={async (e) => {
+                          const code = e.target.value;
+                          const symbol = CURRENCIES.find(c => c.code === code)?.symbol || "$";
+                          setCurrency(code);
+                          setCurrencySymbol(symbol);
+                          
+                          const userId = localStorage.getItem("expense_user_id");
+                          const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                          await fetch("/api/user", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", "x-user-id": userId || "", "x-timezone": userTz },
+                            body: JSON.stringify({ currency: code, currencySymbol: symbol })
+                          });
+                        }}
+                      >
+                        {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+                      </select>
+                      <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--text2)" }}>This will update all historical displays to use {currency} symbols.</p>
+                    </div>
+
+                    <div className="card" style={{ padding: 16, background: "var(--bg3)", border: "1px solid var(--border)" }}>
+                      <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8, fontWeight: 600 }}>TIMEZONE & COUNTRY</label>
+                      <div style={{ padding: "10px 12px", background: "var(--bg2)", borderRadius: 8, fontSize: 14 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                          <span style={{ color: "var(--text2)" }}>Current Region:</span>
+                          <span style={{ fontWeight: 600 }}>{country || "Unknown"}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ color: "var(--text2)" }}>Detect Timezone:</span>
+                          <span style={{ fontWeight: 600 }}>{Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <Modal 
@@ -1849,7 +1952,7 @@ export default function Dashboard() {
         }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <div>
-              <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8 }}>Amount to add (₹)</label>
+              <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8 }}>Amount to add ({currencySymbol})</label>
               <input name="amount" type="number" required autoFocus className="input-field" placeholder="1000" />
             </div>
             <div style={{ display: "flex", gap: 12 }}>
