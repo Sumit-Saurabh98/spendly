@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Send, Bot, User, Sparkles, Loader2, ArrowRight } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 interface Message {
   role: "user" | "assistant";
@@ -108,10 +109,25 @@ export default function AIChat({ userId, currency, currencySymbol }: { userId: s
                 background: m.role === "user" ? "var(--accent)" : "var(--bg3)",
                 color: m.role === "user" ? "#fff" : "var(--text)",
                 fontSize: 14,
-                lineHeight: 1.5,
-                whiteSpace: "pre-wrap"
+                lineHeight: 1.4,
+                whiteSpace: m.role === "user" ? "pre-wrap" : "normal"
               }}>
-                {m.content}
+                {m.role === "assistant" ? (
+                  <div className="markdown-content">
+                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                    <style jsx global>{`
+                      .markdown-content p { margin: 0 0 4px 0; }
+                      .markdown-content p:last-child { margin-bottom: 0; }
+                      .markdown-content ul, .markdown-content ol { margin: 4px 0; padding-left: 18px; }
+                      .markdown-content li { margin-bottom: 2px; }
+                      .markdown-content strong { font-weight: 700; color: var(--accent); }
+                      .markdown-content em { font-style: italic; }
+                      .markdown-content code { background: var(--bg4); padding: 2px 4px; border-radius: 4px; font-family: monospace; }
+                    `}</style>
+                  </div>
+                ) : (
+                  m.content
+                )}
               </div>
               {m.role === "user" && (
                 <div style={{ width: 32, height: 32, borderRadius: 8, background: "var(--accent)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>

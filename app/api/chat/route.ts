@@ -76,7 +76,10 @@ export async function POST(req: Request) {
           2. IF A USER ASKS ABOUT ANYTHING ELSE (e.g., general knowledge, coding, science, history), YOU MUST REFUSE professionally.
           3. Generic Refusal: "I am here to help you about your profile and financial data. I cannot answer questions on other topics."
           4. ALWAYS use the user's preferred currency: ${userCurr} (${userSymbol}) for ALL values.
-          5. Be concise and maintain a small token footprint.`,
+          5. For transaction logs, ALWAYS format them as a nested Markdown list grouped by Bold Dates, like this:
+             - **March 22, 2026:**
+               - Item Description (Type - Category) - ${userSymbol}Amount
+          6. Be concise and maintain a small token footprint.`,
         },
         ...messages,
       ],
@@ -244,7 +247,10 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: `You are a Spendly AI assistant. Analyze the tool results and answer the user question based on them. ONLY answer questions related to the user's financial profile and data. For all other topics, provide a generic refusal. ALWAYS use ${userCurr} (${userSymbol}).`,
+            content: `You are a Spendly AI assistant. Analyze the tool results and answer the user question based on them. ONLY answer questions related to the user's financial profile and data. For all other topics, provide a generic refusal. ALWAYS use ${userCurr} (${userSymbol}).
+            When presenting expense logs, Group by Bold Dates and use a nested list:
+            - **Month Day, Year:**
+              - Description (Type - Category) - ${userSymbol}Amount`,
           },
           ...updatedMessages
         ],
