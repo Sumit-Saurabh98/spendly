@@ -4,6 +4,15 @@ import { useState, useEffect } from "react";
 import { PlusCircle, RefreshCw, Locate, X } from "lucide-react";
 import { CATEGORIES } from "@/types";
 
+interface Subscription {
+  _id: string;
+  name: string;
+  amount: number;
+  category: string;
+  frequency: string;
+  isActive: boolean;
+}
+
 interface AddExpenseModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -12,6 +21,7 @@ interface AddExpenseModalProps {
   dailyBudget: number;
   currentDailyTotal: number;
   fmt: (n: number) => string;
+  subscriptions: Subscription[];
 }
 
 export default function AddExpenseModal({
@@ -21,7 +31,8 @@ export default function AddExpenseModal({
   currencySymbol,
   dailyBudget,
   currentDailyTotal,
-  fmt
+  fmt,
+  subscriptions,
 }: AddExpenseModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
@@ -29,9 +40,11 @@ export default function AddExpenseModal({
   const getLocalISODate = () => {
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+      return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(
+        new Date(),
+      );
     } catch (e) {
-      return new Date().toISOString().split('T')[0];
+      return new Date().toISOString().split("T")[0];
     }
   };
 
@@ -39,9 +52,14 @@ export default function AddExpenseModal({
     amount: "",
     category: CATEGORIES[0],
     description: "",
-    type: "daily" as "daily" | "incidental",
+    type: "daily" as "daily" | "incidental" | "subscription",
     date: getLocalISODate(),
-    location: null as { latitude: number; longitude: number; name?: string } | null,
+    location: null as {
+      latitude: number;
+      longitude: number;
+      name?: string;
+    } | null,
+    subscriptionId: "" as string,
   });
 
   // Reset form when modal opens
@@ -54,6 +72,7 @@ export default function AddExpenseModal({
         type: "daily",
         date: getLocalISODate(),
         location: null,
+        subscriptionId: "",
       });
     }
   }, [isOpen]);
@@ -202,51 +221,94 @@ export default function AddExpenseModal({
 
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Expense Type</label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, type: "daily" })}
+                  onClick={() => setForm({ ...form, type: "daily", subscriptionId: "" })}
                   style={{
-                    padding: "14px",
+                    padding: "12px 8px",
                     borderRadius: 14,
                     border: form.type === "daily" ? "1px solid var(--accent)" : "1px solid var(--border)",
                     background: form.type === "daily" ? "rgba(124, 92, 252, 0.1)" : "var(--bg3)",
                     color: form.type === "daily" ? "var(--accent)" : "var(--text2)",
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: 600,
                     cursor: "pointer",
                     transition: "all 0.2s",
-                    textAlign: "left"
+                    textAlign: "center"
                   }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span>Daily Survival</span>
-                    <span style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>Essential Needs</span>
-                  </div>
+                  Daily
                 </button>
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, type: "incidental" })}
+                  onClick={() => setForm({ ...form, type: "incidental", subscriptionId: "" })}
                   style={{
-                    padding: "14px",
+                    padding: "12px 8px",
                     borderRadius: 14,
                     border: form.type === "incidental" ? "1px solid #f72585" : "1px solid var(--border)",
                     background: form.type === "incidental" ? "rgba(247, 37, 133, 0.1)" : "var(--bg3)",
                     color: form.type === "incidental" ? "#f72585" : "var(--text2)",
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: 600,
                     cursor: "pointer",
                     transition: "all 0.2s",
-                    textAlign: "left"
+                    textAlign: "center"
                   }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span>Incidental</span>
-                    <span style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>Wants & Fun</span>
-                  </div>
+                  Incidental
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, type: "subscription" })}
+                  style={{
+                    padding: "12px 8px",
+                    borderRadius: 14,
+                    border: form.type === "subscription" ? "1px solid #4cc9f0" : "1px solid var(--border)",
+                    background: form.type === "subscription" ? "rgba(76, 201, 240, 0.1)" : "var(--bg3)",
+                    color: form.type === "subscription" ? "#4cc9f0" : "var(--text2)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    textAlign: "center"
+                  }}
+                >
+                  Subscription
                 </button>
               </div>
             </div>
+
+            {form.type === "subscription" && (
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Select Subscription *</label>
+                <select
+                  className="input-field"
+                  value={form.subscriptionId}
+                  onChange={(e) => {
+                    const sub = subscriptions.find(s => s._id === e.target.value);
+                    if (sub) {
+                      setForm({ 
+                        ...form, 
+                        subscriptionId: sub._id, 
+                        amount: sub.amount.toString(), 
+                        description: `Payment for ${sub.name}`,
+                        category: sub.category
+                      });
+                    } else {
+                      setForm({ ...form, subscriptionId: e.target.value });
+                    }
+                  }}
+                  required
+                  style={{ padding: "10px 12px" }}
+                >
+                  <option value="">-- Choose Subscription --</option>
+                  {subscriptions.filter(s => s.isActive).map((s) => (
+                    <option key={s._id} value={s._id}>{s.name} ({fmt(s.amount)})</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div style={{ marginBottom: 24 }}>
               <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Location (Optional)</label>

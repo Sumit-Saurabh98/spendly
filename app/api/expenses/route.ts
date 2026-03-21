@@ -125,8 +125,8 @@ export async function GET(req: NextRequest) {
           $match: {
             userId,
             date: { $gte: today, $lt: tomorrow },
-            subscriptionId: null,
             type: "daily",
+            subscriptionId: null,
           },
         },
         { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -136,8 +136,8 @@ export async function GET(req: NextRequest) {
           $match: {
             userId,
             date: { $gte: today, $lt: tomorrow },
-            subscriptionId: null,
             type: "incidental",
+            subscriptionId: null,
           },
         },
         { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -147,8 +147,8 @@ export async function GET(req: NextRequest) {
           $match: {
             userId,
             date: { $gte: monthStart, $lt: nextMonth },
-            subscriptionId: null,
             type: "daily",
+            subscriptionId: null,
           },
         },
         { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -158,8 +158,8 @@ export async function GET(req: NextRequest) {
           $match: {
             userId,
             date: { $gte: monthStart, $lt: nextMonth },
-            subscriptionId: null,
             type: "incidental",
+            subscriptionId: null,
           },
         },
         { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -681,7 +681,7 @@ export async function POST(req: NextRequest) {
 
     const userTz = req.headers.get("x-timezone") || "UTC";
     const body = await req.json();
-    const { amount, category, description, date, location, type } = body;
+    const { amount, category, description, date, location, type, subscriptionId } = body;
 
     // Helper to get offset for the input date
     const getOffset = (tz: string) => {
@@ -709,6 +709,7 @@ export async function POST(req: NextRequest) {
       type: type || "daily",
       date: date ? new Date(`${date}T00:00:00${offset}`) : new Date(),
       location,
+      subscriptionId,
     });
 
     return NextResponse.json(expense, { status: 201 });

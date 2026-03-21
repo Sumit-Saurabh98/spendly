@@ -3,60 +3,63 @@ import { connectDB } from "@/lib/mongodb";
 import { SubscriptionModel } from "@/models/Subscription";
 import { ExpenseModel } from "@/models/Expense";
 
+function calculateNextBillingDate(startDate: Date, frequency: string, latestPaymentDate: Date | undefined, tz: string): Date {
+  const toDateString = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
+  
+  const start = new Date(startDate);
+  const startStr = toDateString(start, tz);
+  
+  if (!latestPaymentDate) return start;
+  const latestStr = toDateString(latestPaymentDate, tz);
+  
+  if (latestStr < startStr) return start;
+
+  let iterations = 0;
+  let next = new Date(start);
+  
+  while (toDateString(next, tz) <= latestStr) {
+    iterations++;
+    next = new Date(start);
+    if (frequency === "weekly") {
+      next.setDate(start.getDate() + (iterations * 7));
+    } else if (frequency === "yearly") {
+      next.setFullYear(start.getFullYear() + iterations);
+    } else {
+      // monthly
+      next.setMonth(start.getMonth() + iterations);
+      if (next.getDate() !== start.getDate()) {
+        next.setDate(0);
+      }
+    }
+  }
+  return next;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const userId = req.headers.get("x-user-id");
+    const userTz = req.headers.get("x-timezone") || "UTC";
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     await connectDB();
-    const subscriptions = await SubscriptionModel.find({ userId, isActive: true }).sort({ nextBillingDate: 1 });
+    const subscriptionsRaw = await SubscriptionModel.find({ userId });
 
-    // Detection Logic: Scan last 90 days for patterns
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    const subscriptions = await Promise.all(subscriptionsRaw.map(async (s) => {
+      const history = await ExpenseModel.find({ subscriptionId: s._id }).sort({ date: -1 }).limit(10).lean();
+      const latestPayment = history.length > 0 ? new Date(history[0].date) : undefined;
+      const nextBillingDate = calculateNextBillingDate(s.startDate, s.frequency, latestPayment, userTz);
+      
+      return { 
+        ...s.toObject(), 
+        history,
+        nextBillingDate 
+      };
+    }));
 
-    const expenses = await ExpenseModel.find({
-      userId,
-      date: { $gte: ninetyDaysAgo }
-    });
+    // Sort by next billing date
+    subscriptions.sort((a, b) => new Date(a.nextBillingDate).getTime() - new Date(b.nextBillingDate).getTime());
 
-    // Group by description
-    const groups: { [key: string]: any[] } = {};
-    expenses.forEach(ex => {
-      const desc = ex.description.toLowerCase().trim();
-      if (!groups[desc]) groups[desc] = [];
-      groups[desc].push(ex);
-    });
-
-    const detected: any[] = [];
-    for (const [desc, items] of Object.entries(groups)) {
-      if (items.length < 2) continue;
-
-      // Check for monthly pattern (different months)
-      const months = new Set(items.map(ex => new Date(ex.date).getMonth()));
-      if (months.size >= 2) {
-        // Check for similar amounts (+/- 15%)
-        const avgAmount = items.reduce((sum, item) => sum + item.amount, 0) / items.length;
-        const reflectsConsistentAmount = items.every(item => Math.abs(item.amount - avgAmount) < avgAmount * 0.15);
-
-        if (reflectsConsistentAmount) {
-          // Check if already a subscription
-          const exists = subscriptions.some(s => s.name.toLowerCase() === desc);
-          if (!exists) {
-            detected.push({
-              name: items[0].description,
-              amount: Math.round(avgAmount),
-              category: items[0].category,
-              frequency: "monthly",
-              confidence: items.length >= 3 ? "high" : "medium",
-              occurrences: items.length
-            });
-          }
-        }
-      }
-    }
-
-    return NextResponse.json({ subscriptions, detected });
+    return NextResponse.json({ subscriptions, detected: [] });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Failed to fetch subscriptions" }, { status: 500 });
@@ -70,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
     const body = await req.json();
-    const { name, amount, category, frequency, nextBillingDate, isAutoDetected } = body;
+    const { name, amount, category, frequency, startDate } = body;
 
     const subscription = await SubscriptionModel.create({
       userId,
@@ -78,20 +81,39 @@ export async function POST(req: NextRequest) {
       amount,
       category,
       frequency: frequency || "monthly",
-      nextBillingDate: nextBillingDate ? new Date(nextBillingDate) : undefined,
-      isAutoDetected: !!isAutoDetected
+      startDate: startDate ? new Date(startDate) : new Date(),
     });
-
-    // Link existing expenses to this subscription (for this user only)
-    await ExpenseModel.updateMany(
-      { userId, description: { $regex: new RegExp(`^${name}$`, "i") } },
-      { $set: { subscriptionId: subscription._id } }
-    );
 
     return NextResponse.json(subscription, { status: 201 });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Failed to create subscription" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const userId = req.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    await connectDB();
+    const body = await req.json();
+    const { id, isActive } = body;
+
+    if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
+
+    const subscription = await SubscriptionModel.findOneAndUpdate(
+      { _id: id, userId },
+      { $set: { isActive } },
+      { new: true }
+    );
+
+    if (!subscription) return NextResponse.json({ error: "Subscription not found" }, { status: 404 });
+
+    return NextResponse.json(subscription);
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "Failed to update subscription" }, { status: 500 });
   }
 }
 

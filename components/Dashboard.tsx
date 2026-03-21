@@ -24,6 +24,13 @@ import {
   Mail,
   LogOutIcon,
   User,
+  PauseCircle,
+  PlayCircle,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Calendar,
+  CreditCard,
 } from "lucide-react";
 import {
   AreaChart,
@@ -241,9 +248,10 @@ interface Expense {
   amount: number;
   category: string;
   description: string;
-  type: "daily" | "incidental";
+  type: "daily" | "incidental" | "subscription";
   date: string;
   location?: { latitude: number; longitude: number; name?: string };
+  subscriptionId?: string;
   createdAt: string;
 }
 
@@ -255,7 +263,7 @@ interface Subscription {
   frequency: string;
   nextBillingDate?: string;
   isActive: boolean;
-  isAutoDetected: boolean;
+  history?: any[];
 }
 
 interface Goal {
@@ -402,7 +410,6 @@ export default function Dashboard() {
     monthlyIncidentalTrend: [],
   });
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [detectedSubscriptions, setDetectedSubscriptions] = useState<any[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -411,6 +418,15 @@ export default function Dashboard() {
     type: "add-funds" | "confirm-delete" | "flash-alert" | null;
     data: any;
   }>({ type: null, data: null });
+  const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
+  const [showAddSub, setShowAddSub] = useState(false);
+  const [newSub, setNewSub] = useState({
+    name: "",
+    amount: "",
+    category: CATEGORIES[0],
+    frequency: "monthly" as "monthly" | "yearly" | "weekly",
+    startDate: new Date().toISOString().split("T")[0],
+  });
   const [alerts, setAlerts] = useState<string[]>([]);
   const [showReminder, setShowReminder] = useState(false);
   const [logPeriod, setLogPeriod] = useState<"day" | "month" | "year" | "all">(
@@ -551,7 +567,6 @@ export default function Dashboard() {
     setOtp("");
   };
 
-
   const fetchData = useCallback(async () => {
     setLoading(true);
     const userId = localStorage.getItem("expense_user_id");
@@ -617,7 +632,6 @@ export default function Dashboard() {
       if (expensesData.summary) setSummary(expensesData.summary);
       if (expensesData.charts) setCharts(expensesData.charts);
       setSubscriptions(subsData.subscriptions || []);
-      setDetectedSubscriptions(subsData.detected || []);
       setGoals(goalsData || []);
 
       // Alerts
@@ -706,6 +720,50 @@ export default function Dashboard() {
     });
     setShowIncidentalEdit(false);
     setNewIncidentalBudget("");
+    fetchData();
+  };
+
+  const handleToggleSubscription = async (
+    id: string,
+    currentlyActive: boolean,
+  ) => {
+    const userId = localStorage.getItem("expense_user_id");
+    if (!userId) return;
+
+    await fetch("/api/subscriptions", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-user-id": userId },
+      body: JSON.stringify({ id, isActive: !currentlyActive }),
+    });
+    fetchData();
+  };
+
+  const handleSaveSubscription = async () => {
+    const { name, amount, category, frequency, startDate } = newSub;
+    if (!name || !amount) return;
+
+    const userId = localStorage.getItem("expense_user_id");
+    if (!userId) return;
+
+    await fetch("/api/subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-user-id": userId },
+      body: JSON.stringify({
+        name,
+        amount: parseFloat(amount),
+        category,
+        frequency,
+        startDate: new Date(startDate),
+      }),
+    });
+    setShowAddSub(false);
+    setNewSub({
+      name: "",
+      amount: "",
+      category: CATEGORIES[0],
+      frequency: "monthly",
+      startDate: new Date().toISOString().split("T")[0],
+    });
     fetchData();
   };
 
@@ -1213,7 +1271,7 @@ export default function Dashboard() {
             { id: "overview", label: "Overview", icon: LayoutDashboard },
             { id: "charts", label: "Analytics", icon: BarChart3 },
             { id: "logs", label: "Logs", icon: List },
-            { id: "subscriptions", label: "Recurring", icon: RefreshCw },
+            { id: "subscriptions", label: "Subscription", icon: RefreshCw },
             { id: "goals", label: "Goals", icon: Wallet },
             { id: "chat", label: "AI Assistant", icon: Sparkles },
             { id: "map", label: "Map", icon: Map },
@@ -3314,152 +3372,702 @@ export default function Dashboard() {
 
         {/* SUBSCRIPTIONS TAB */}
         {tab === "subscriptions" && (
-          <div className="animate-slide-up">
+          <div
+            className="animate-slide-up"
+            style={{ display: "flex", flexDirection: "column", gap: 24 }}
+          >
+            {/* Subscription Header Card */}
             <div
+              className="card"
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))",
-                gap: 24,
+                padding: "24px",
+                background:
+                  "linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%)",
+                border: "1px solid var(--border)",
+                position: "relative",
+                overflow: "hidden",
               }}
             >
-              {/* Detected Subscriptions */}
-              <div className="card" style={{ padding: 24 }}>
-                <div
+              <div
+                style={{
+                  position: "absolute",
+                  top: -20,
+                  right: -20,
+                  width: 150,
+                  height: 150,
+                  background: "rgba(124, 92, 252, 0.05)",
+                  borderRadius: "50%",
+                }}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                <div>
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: 24,
+                      fontWeight: 800,
+                      color: "var(--text)",
+                    }}
+                  >
+                    Subscriptions
+                  </h2>
+                  <p
+                    style={{
+                      margin: "4px 0 0",
+                      color: "var(--text2)",
+                      fontSize: 14,
+                    }}
+                  >
+                    Manage your recurring payments and fixed costs
+                  </p>
+                </div>
+                <button
+                  className="btn-primary"
+                  onClick={() => setShowAddSub(!showAddSub)}
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
+                    gap: 8,
+                    padding: "10px 20px",
+                  }}
+                >
+                  <Plus size={18} />
+                  New Subscription
+                </button>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                  gap: 20,
+                  marginTop: 32,
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                <div
+                  style={{
+                    padding: "16px",
+                    background: "var(--bg1)",
+                    borderRadius: 16,
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 12,
+                      color: "var(--text2)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                    }}
+                  >
+                    Total Monthly
+                  </p>
+                  <p
+                    style={{
+                      margin: "8px 0 0",
+                      fontSize: 28,
+                      fontWeight: 800,
+                      color: "var(--accent)",
+                    }}
+                  >
+                    {fmt(
+                      subscriptions.reduce(
+                        (sum, s) => (s.isActive ? sum + s.amount : sum),
+                        0,
+                      ),
+                    )}
+                  </p>
+                </div>
+                <div
+                  style={{
+                    padding: "16px",
+                    background: "var(--bg1)",
+                    borderRadius: 16,
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 12,
+                      color: "var(--text2)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                    }}
+                  >
+                    Active Subs
+                  </p>
+                  <p
+                    style={{
+                      margin: "8px 0 0",
+                      fontSize: 28,
+                      fontWeight: 800,
+                      color: "var(--text)",
+                    }}
+                  >
+                    {subscriptions.filter((s) => s.isActive).length}
+                  </p>
+                </div>
+                <div
+                  style={{
+                    padding: "16px",
+                    background: "var(--bg1)",
+                    borderRadius: 16,
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 12,
+                      color: "var(--text2)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                    }}
+                  >
+                    Paused
+                  </p>
+                  <p
+                    style={{
+                      margin: "8px 0 0",
+                      fontSize: 28,
+                      fontWeight: 800,
+                      color: "var(--text2)",
+                    }}
+                  >
+                    {subscriptions.filter((s) => !s.isActive).length}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {showAddSub && (
+              <div
+                className="card animate-slide-up"
+                style={{
+                  padding: 24,
+                  border: "1px solid var(--accent)",
+                  background: "rgba(124, 92, 252, 0.02)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
                     marginBottom: 20,
                   }}
                 >
-                  <Sparkles size={20} color="var(--accent)" />
-                  <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
-                    Detected Patterns
-                  </h2>
-                </div>
-                {detectedSubscriptions.length === 0 ? (
-                  <p style={{ color: "var(--text2)", fontSize: 14 }}>
-                    No recurring patterns detected yet. Keep logging!
-                  </p>
-                ) : (
-                  <div
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+                    Add New Subscription
+                  </h3>
+                  <button
+                    onClick={() => setShowAddSub(false)}
                     style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 12,
+                      background: "none",
+                      border: "none",
+                      color: "var(--text2)",
+                      cursor: "pointer",
                     }}
                   >
-                    {detectedSubscriptions.map((ds, i) => (
+                    <X size={20} />
+                  </button>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                    gap: 20,
+                  }}
+                >
+                  <div>
+                    <label className="input-label">Subscription Name</label>
+                    <input
+                      className="input-field"
+                      placeholder="e.g. Netflix"
+                      value={newSub.name}
+                      onChange={(e) =>
+                        setNewSub({ ...newSub, name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="input-label">Amount</label>
+                    <input
+                      className="input-field"
+                      type="number"
+                      placeholder="0.00"
+                      value={newSub.amount}
+                      onChange={(e) =>
+                        setNewSub({ ...newSub, amount: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="input-label">Category</label>
+                    <select
+                      className="input-field"
+                      value={newSub.category}
+                      onChange={(e) =>
+                        setNewSub({ ...newSub, category: e.target.value })
+                      }
+                    >
+                      {CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="input-label">Frequency</label>
+                    <select
+                      className="input-field"
+                      value={newSub.frequency}
+                      onChange={(e) =>
+                        setNewSub({
+                          ...newSub,
+                          frequency: e.target.value as any,
+                        })
+                      }
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="input-label">Start Date</label>
+                    <input
+                      className="input-field"
+                      type="date"
+                      value={newSub.startDate}
+                      onChange={(e) =>
+                        setNewSub({ ...newSub, startDate: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div style={{ display: "flex", alignItems: "flex-end" }}>
+                    <button
+                      className="btn-primary"
+                      style={{ width: "100%", height: 46 }}
+                      onClick={handleSaveSubscription}
+                    >
+                      Create Subscription
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))",
+                gap: 24,
+              }}
+            >
+              {/* Active Subscriptions List */}
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 16 }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+                    Managing Subscriptions
+                  </h3>
+                </div>
+                {subscriptions.length === 0 ? (
+                  <div
+                    className="card"
+                    style={{
+                      padding: 40,
+                      textAlign: "center",
+                      color: "var(--text2)",
+                    }}
+                  >
+                    <CreditCard
+                      size={48}
+                      style={{ opacity: 0.2, marginBottom: 16 }}
+                    />
+                    <p>No subscriptions added yet.</p>
+                  </div>
+                ) : (
+                  subscriptions.map((s) => (
+                    <div
+                      key={s._id}
+                      className="card card-hover"
+                      style={{
+                        padding: 0,
+                        overflow: "hidden",
+                        border:
+                          expandedSubId === s._id
+                            ? "1px solid var(--accent)"
+                            : "1px solid var(--border)",
+                        opacity: s.isActive ? 1 : 0.7,
+                      }}
+                    >
                       <div
-                        key={i}
-                        className="card"
                         style={{
-                          padding: 16,
-                          background: "var(--bg3)",
-                          border: "1px dashed var(--accent)",
+                          padding: 20,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
                         }}
                       >
                         <div
                           style={{
                             display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "start",
+                            alignItems: "center",
+                            gap: 16,
                           }}
                         >
+                          <div
+                            style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 12,
+                              background: "var(--bg3)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: "var(--accent)",
+                            }}
+                          >
+                            <RefreshCw
+                              size={20}
+                              className={s.isActive ? "animate-spin-slow" : ""}
+                            />
+                          </div>
                           <div>
                             <h4
                               style={{
                                 margin: 0,
-                                fontSize: 15,
+                                fontSize: 16,
                                 fontWeight: 700,
                               }}
                             >
-                              {ds.name}
+                              {s.name}
                             </h4>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 8,
+                                alignItems: "center",
+                                marginTop: 4,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  background: "rgba(124, 92, 252, 0.1)",
+                                  color: "var(--accent)",
+                                  padding: "2px 8px",
+                                  borderRadius: 8,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {s.category}
+                              </span>
+                              <span
+                                style={{ fontSize: 10, color: "var(--text2)" }}
+                              >
+                                • {s.frequency}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            textAlign: "right",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 20,
+                          }}
+                        >
+                          <div>
                             <p
                               style={{
-                                margin: "2px 0 0",
-                                fontSize: 12,
+                                margin: 0,
+                                fontSize: 18,
+                                fontWeight: 800,
+                                color: "var(--text)",
+                              }}
+                            >
+                              {fmt(s.amount)}
+                            </p>
+                            <p
+                              style={{
+                                margin: 0,
+                                fontSize: 10,
                                 color: "var(--text2)",
                               }}
                             >
-                              Appears {ds.occurrences} times recently
+                              Next:{" "}
+                              {new Date(
+                                s.nextBillingDate || "",
+                              ).toLocaleDateString()}
                             </p>
                           </div>
-                          <p
-                            style={{
-                              margin: 0,
-                              fontSize: 16,
-                              fontWeight: 800,
-                              color: "var(--accent)",
-                            }}
-                          >
-                            {currencySymbol}
-                            {ds.amount}
-                          </p>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button
+                              onClick={() =>
+                                handleToggleSubscription(s._id, s.isActive)
+                              }
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 10,
+                                border: "1px solid var(--border)",
+                                background: "var(--bg2)",
+                                color: s.isActive
+                                  ? "var(--text2)"
+                                  : "var(--green)",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                              title={
+                                s.isActive
+                                  ? "Pause Subscription"
+                                  : "Resume Subscription"
+                              }
+                            >
+                              {s.isActive ? (
+                                <PauseCircle size={18} />
+                              ) : (
+                                <PlayCircle size={18} />
+                              )}
+                            </button>
+                            <button
+                              onClick={() =>
+                                handleDelete(s._id, "subscription")
+                              }
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 10,
+                                border: "1px solid var(--border)",
+                                background: "var(--bg2)",
+                                color: "var(--red)",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                              title="Delete Subscription"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                            <button
+                              onClick={() =>
+                                setExpandedSubId(
+                                  expandedSubId === s._id ? null : s._id,
+                                )
+                              }
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 10,
+                                border: "1px solid var(--border)",
+                                background: "var(--bg2)",
+                                color: "var(--text2)",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                            >
+                              {expandedSubId === s._id ? (
+                                <ChevronUp size={18} />
+                              ) : (
+                                <ChevronDown size={18} />
+                              )}
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          className="btn-primary"
+                      </div>
+
+                      {expandedSubId === s._id && (
+                        <div
                           style={{
-                            width: "100%",
-                            marginTop: 12,
-                            padding: "8px",
-                            fontSize: 12,
-                          }}
-                          onClick={async () => {
-                            const userId =
-                              localStorage.getItem("expense_user_id");
-                            if (!userId) return;
-                            await fetch("/api/subscriptions", {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                "x-user-id": userId,
-                              },
-                              body: JSON.stringify({
-                                ...ds,
-                                isAutoDetected: true,
-                              }),
-                            });
-                            fetchData();
+                            padding: "0 20px 20px",
+                            borderTop: "1px solid var(--border)",
+                            background: "rgba(0,0,0,0.02)",
                           }}
                         >
-                          Confirm as Subscription
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                          <p
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              margin: "16px 0 12px",
+                              color: "var(--text2)",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                            }}
+                          >
+                            Payment History
+                          </p>
+                          {!s.history || s.history.length === 0 ? (
+                            <p
+                              style={{
+                                fontSize: 12,
+                                color: "var(--text2)",
+                                margin: 0,
+                                padding: "12px",
+                                background: "var(--bg1)",
+                                borderRadius: 8,
+                                border: "1px dashed var(--border)",
+                              }}
+                            >
+                              No payments logged yet.
+                            </p>
+                          ) : (
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 8,
+                              }}
+                            >
+                              {s.history?.map((h: any) => (
+                                <div
+                                  key={h._id}
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    padding: "10px 14px",
+                                    background: "var(--bg1)",
+                                    borderRadius: 10,
+                                  }}
+                                >
+                                  <div>
+                                    <p
+                                      style={{
+                                        margin: 0,
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      {new Date(h.date).toLocaleDateString(
+                                        undefined,
+                                        {
+                                          month: "short",
+                                          day: "numeric",
+                                          year: "numeric",
+                                        },
+                                      )}
+                                    </p>
+                                    <p
+                                      style={{
+                                        margin: 0,
+                                        fontSize: 11,
+                                        color: "var(--text2)",
+                                      }}
+                                    >
+                                      {h.description}
+                                    </p>
+                                  </div>
+                                  <p
+                                    style={{
+                                      margin: 0,
+                                      fontSize: 14,
+                                      fontWeight: 700,
+                                      color: "var(--text)",
+                                    }}
+                                  >
+                                    {fmt(h.amount)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))
                 )}
               </div>
 
-              {/* Active Subscriptions */}
-              <div className="card" style={{ padding: 24 }}>
-                <h2
-                  style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 700 }}
-                >
-                  Active Subscriptions
-                </h2>
-                {subscriptions.length === 0 ? (
-                  <p style={{ color: "var(--text2)", fontSize: 14 }}>
-                    Add or confirm subscriptions to track fixed costs.
-                  </p>
-                ) : (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 12,
-                    }}
-                  >
-                    {subscriptions.map((s) => (
+              {/* Upcoming Payments Section */}
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 16 }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Calendar size={20} color="var(--accent)" />
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+                    Upcoming Payments
+                  </h3>
+                </div>
+                {(() => {
+                  const upcoming = subscriptions
+                    .filter((s) => {
+                      if (!s.isActive || !s.nextBillingDate) return false;
+                      const next = new Date(s.nextBillingDate);
+                      const today = new Date();
+                      const diffTime = next.getTime() - today.getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                      return diffDays >= 0 && diffDays <= 10;
+                    })
+                    .sort(
+                      (a, b) =>
+                        new Date(a.nextBillingDate!).getTime() -
+                        new Date(b.nextBillingDate!).getTime(),
+                    );
+
+                  if (upcoming.length === 0) {
+                    return (
                       <div
-                        key={s._id}
                         className="card"
                         style={{
-                          padding: 16,
+                          padding: 32,
+                          background: "var(--bg2)",
+                          border: "1px dashed var(--border)",
+                          textAlign: "center",
+                          color: "var(--text2)",
+                        }}
+                      >
+                        <p style={{ fontSize: 14, margin: 0 }}>
+                          No upcoming payments in the next 10 days.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return upcoming.map((s) => (
+                    <div
+                      key={s._id}
+                      className="card"
+                      style={{
+                        padding: 20,
+                        background:
+                          "linear-gradient(to right, rgba(124, 92, 252, 0.05), transparent)",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      <div
+                        style={{
                           display: "flex",
                           justifyContent: "space-between",
-                          alignItems: "center",
+                          alignItems: "start",
                         }}
                       >
                         <div>
@@ -3468,83 +4076,31 @@ export default function Dashboard() {
                           >
                             {s.name}
                           </h4>
-                          <span
+                          <p
                             style={{
-                              fontSize: 11,
-                              background: "rgba(124, 92, 252, 0.1)",
+                              margin: "4px 0 0",
+                              fontSize: 12,
                               color: "var(--accent)",
-                              padding: "2px 8px",
-                              borderRadius: 10,
                               fontWeight: 600,
                             }}
                           >
-                            {s.category}
-                          </span>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <p
-                            style={{ margin: 0, fontSize: 16, fontWeight: 800 }}
-                          >
-                            {currencySymbol}
-                            {s.amount}
+                            Due: {new Date(s.nextBillingDate!).toLocaleDateString()}
                           </p>
-                          <button
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "#ff5370",
-                              fontSize: 11,
-                              cursor: "pointer",
-                              padding: 0,
-                            }}
-                            onClick={() => handleDelete(s._id, "subscription")}
-                          >
-                            Remove
-                          </button>
                         </div>
-                      </div>
-                    ))}
-                    <div
-                      style={{
-                        marginTop: 20,
-                        padding: 16,
-                        background: "var(--bg3)",
-                        borderRadius: 12,
-                        border: "1px solid var(--border)",
-                      }}
-                    >
-                      <p
-                        style={{
-                          margin: 0,
-                          fontSize: 12,
-                          color: "var(--text2)",
-                        }}
-                      >
-                        Total Fixed Costs:
-                      </p>
-                      <p
-                        style={{
-                          margin: "4px 0 0",
-                          fontSize: 24,
-                          fontWeight: 800,
-                          color: "var(--text)",
-                        }}
-                      >
-                        {currencySymbol}
-                        {subscriptions.reduce((sum, s) => sum + s.amount, 0)}
-                        <span
+                        <p
                           style={{
-                            fontSize: 14,
-                            fontWeight: 400,
-                            color: "var(--text2)",
+                            margin: 0,
+                            fontSize: 18,
+                            fontWeight: 800,
+                            color: "var(--text)",
                           }}
                         >
-                          /month
-                        </span>
-                      </p>
+                          {fmt(s.amount)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  ));
+                })()}
               </div>
             </div>
           </div>
@@ -4848,6 +5404,7 @@ export default function Dashboard() {
         dailyBudget={dailyBudget}
         currentDailyTotal={summary.daily}
         fmt={fmt}
+        subscriptions={subscriptions}
       />
     </div>
   );
