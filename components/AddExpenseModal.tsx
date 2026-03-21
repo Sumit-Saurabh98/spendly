@@ -269,7 +269,7 @@ export default function AddExpenseModal({
             </div>
 
             {/* Budget preview */}
-            {form.amount && !isNaN(parseFloat(form.amount)) && (
+            {form.type === "daily" && form.amount && !isNaN(parseFloat(form.amount)) && (
               <div style={{ background: "var(--bg3)", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
                 <p style={{ margin: 0, fontSize: 12, color: "var(--text2)", fontWeight: 500 }}>Budget Impact:</p>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
