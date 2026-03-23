@@ -65,7 +65,12 @@ export default function AIChat({ userId, currency, currencySymbol }: { userId: s
           "Content-Type": "application/json",
           "x-user-id": userId 
         },
-        body: JSON.stringify({ messages: newMessages, currency, currencySymbol }),
+        body: JSON.stringify({ 
+          messages: newMessages, 
+          currency, 
+          currencySymbol,
+          clientDate: new Date().toISOString()
+        }),
       });
 
       const data = await res.json();

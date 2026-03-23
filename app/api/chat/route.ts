@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     const userId = req.headers.get("x-user-id");
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { messages, currency, currencySymbol } = await req.json();
+    const { messages, currency, currencySymbol, clientDate } = await req.json();
     const userCurr = currency || "INR";
     const userSymbol = currencySymbol || "₹";
 
@@ -49,12 +49,13 @@ export async function POST(req: Request) {
       await ChatMessageModel.create({ userId, role: "user", content: lastMessage.content });
     }
 
-    // Get current time in IST
+    // Use client date if provided, fallback to server time in IST
+    const now = clientDate ? new Date(clientDate) : new Date();
     const nowIST = new Intl.DateTimeFormat("en-IN", {
       timeZone: "Asia/Kolkata",
       dateStyle: "full",
       timeStyle: "long",
-    }).format(new Date());
+    }).format(now);
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -76,10 +77,11 @@ export async function POST(req: Request) {
           2. IF A USER ASKS ABOUT ANYTHING ELSE (e.g., general knowledge, coding, science, history), YOU MUST REFUSE professionally.
           3. Generic Refusal: "I am here to help you about your profile and financial data. I cannot answer questions on other topics."
           4. ALWAYS use the user's preferred currency: ${userCurr} (${userSymbol}) for ALL values.
-          5. For transaction logs, ALWAYS format them as a nested Markdown list grouped by Bold Dates, like this:
-             - **March 22, 2026:**
-               - Item Description (Type - Category) - ${userSymbol}Amount
-          6. Be concise and maintain a small token footprint.`,
+          7. IMPORTANT: Only report expenses that are explicitly found in the "Expenses" history. 
+          8. Subscriptions show *future* recurring costs; DO NOT report them as completed payments for today unless they appear in the expense logs.
+          9. Group transaction logs by Bold Dates, using relative terms if helpful (e.g., "Today, March 23, 2026"):
+             - **Date:**
+               - Item Description (Type - Category) - ${userSymbol}Amount`,
         },
         ...messages,
       ],
@@ -151,7 +153,7 @@ export async function POST(req: Request) {
         let result = "";
         const tc = toolCall as any;
         if (tc.function.name === "get_financial_summary") {
-          const now = new Date();
+          // Use the 'now' from outer scope which is synchronized with client
           const formatter = new Intl.DateTimeFormat("en-US", {
             timeZone: "Asia/Kolkata",
             year: "numeric",
@@ -215,7 +217,7 @@ export async function POST(req: Request) {
           result = JSON.stringify(goals);
         } else if (tc.function.name === "get_expense_logs") {
           const args = JSON.parse(tc.function.arguments);
-          const startDate = new Date();
+          const startDate = new Date(now);
           startDate.setDate(startDate.getDate() - (args.days || 30));
           
           const logs = await ExpenseModel.find({
@@ -227,7 +229,7 @@ export async function POST(req: Request) {
           .lean();
           
           result = JSON.stringify(logs.map(l => ({
-            date: new Date(l.date).toLocaleDateString(),
+            date: new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium" }).format(new Date(l.date)),
             amount: l.amount,
             category: l.category,
             description: l.description,
