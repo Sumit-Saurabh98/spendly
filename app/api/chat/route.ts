@@ -79,7 +79,8 @@ export async function POST(req: Request) {
           4. ALWAYS use the user's preferred currency: ${userCurr} (${userSymbol}) for ALL values.
           7. IMPORTANT: Only report expenses that are explicitly found in the "Expenses" history. 
           8. Subscriptions show *future* recurring costs; DO NOT report them as completed payments for today unless they appear in the expense logs.
-          9. Group transaction logs by Bold Dates, using relative terms if helpful (e.g., "Today, March 23, 2026"):
+          9. If you see an expense in the history with a FUTURE date (relative to ${nowIST}), acknowledge it as a future-dated entry, NOT as evidence that today is that date.
+          10. Group transaction logs by Bold Dates, using relative terms if helpful (e.g., "Today, March 24, 2026"):
              - **Date:**
                - Item Description (Type - Category) - ${userSymbol}Amount`,
         },
@@ -168,6 +169,8 @@ export async function POST(req: Request) {
           const day = getPart("day");
 
           const today = new Date(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T00:00:00+05:30`);
+          const tomorrow = new Date(today);
+          tomorrow.setDate(today.getDate() + 1);
           const monthStart = new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00+05:30`);
           const yearStart = new Date(`${year}-01-01T00:00:00+05:30`);
           const sixMonthsAgo = new Date(today);
@@ -175,10 +178,10 @@ export async function POST(req: Request) {
 
           const [user, dailyTotal, monthlyTotal, sixMonthTotal, yearlyTotal, subs] = await Promise.all([
             UserModel.findById(userId),
-            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: today } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: monthStart } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: sixMonthsAgo } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
-            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: yearStart } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: today, $lt: tomorrow } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: monthStart, $lt: tomorrow } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: sixMonthsAgo, $lt: tomorrow } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+            ExpenseModel.aggregate([{ $match: { userId, date: { $gte: yearStart, $lt: tomorrow } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
             SubscriptionModel.find({ userId, isActive: true })
           ]);
 
@@ -233,7 +236,8 @@ export async function POST(req: Request) {
             amount: l.amount,
             category: l.category,
             description: l.description,
-            type: l.type
+            type: l.type,
+            isFuture: new Date(l.date) > now
           })));
         }
 
