@@ -709,14 +709,14 @@ export async function POST(req: NextRequest) {
       type: type || "daily",
       date: date ? new Date(`${date}T00:00:00${offset}`) : new Date(),
       location,
-      subscriptionId,
+      subscriptionId: subscriptionId || undefined,
     });
 
     return NextResponse.json(expense, { status: 201 });
-  } catch (error) {
-    console.error(error);
+  } catch (error: any) {
+    console.error("Expense creation error:", error);
     return NextResponse.json(
-      { error: "Failed to create expense" },
+      { error: "Failed to create expense", details: error.message },
       { status: 500 },
     );
   }

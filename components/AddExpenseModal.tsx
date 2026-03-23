@@ -36,6 +36,7 @@ export default function AddExpenseModal({
 }: AddExpenseModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const getLocalISODate = () => {
     try {
@@ -74,6 +75,7 @@ export default function AddExpenseModal({
         location: null,
         subscriptionId: "",
       });
+      setError(null);
     }
   }, [isOpen]);
 
@@ -105,6 +107,8 @@ export default function AddExpenseModal({
     });
   };
 
+
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.amount || !form.description) return;
@@ -113,19 +117,28 @@ export default function AddExpenseModal({
     if (!userId) return;
 
     setSubmitting(true);
+    setError(null);
     try {
       const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const res = await fetch("/api/expenses", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": userId, "x-timezone": userTz },
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": userId,
+          "x-timezone": userTz,
+        },
         body: JSON.stringify({ ...form, amount: parseFloat(form.amount) }),
       });
+      const data = await res.json();
       if (res.ok) {
         onSuccess();
         onClose();
+      } else {
+        setError(data.error || "Failed to add expense");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to add expense", err);
+      setError("Network error. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -165,6 +178,23 @@ export default function AddExpenseModal({
 
         {/* Form Body */}
         <div style={{ padding: 24, maxHeight: "calc(100vh - 200px)", overflowY: "auto" }}>
+          {error && (
+            <div style={{
+              background: "rgba(239, 68, 68, 0.1)",
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+              color: "var(--red)",
+              padding: "12px 16px",
+              borderRadius: 12,
+              marginBottom: 20,
+              fontSize: 13,
+              display: "flex",
+              alignItems: "center",
+              gap: 8
+            }}>
+              <X size={16} />
+              {error}
+            </div>
+          )}
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom: 20 }}>
               <label style={{ display: "block", fontSize: 12, color: "var(--text2)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Amount ({currencySymbol}) *</label>
